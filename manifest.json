@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Whitelist Website Blocker",
+  "version": "1.4",
+  "description": "Blocks all websites except those on your whitelist. Supports multiple lists, timers, and custom new tab startpage.",
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "storage",
+    "tabs",
+    "alarms",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Manage Whitelists"
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

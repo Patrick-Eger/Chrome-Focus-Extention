@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus Startpage</title>
+    <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Focus Mode</h1>
+            <div id="headerClock" class="header-clock">--:--</div>
+        </header>
+
+        <nav class="tabs">
+            <button id="clockTab" class="tab">⏰ Clock</button>
+            <button id="focusTab" class="tab active">🎯 Focus</button>
+            <button id="todoTab" class="tab">📝 To-Do</button>
+            <button id="settingsTab" class="tab">⚙️ Settings</button>
+        </nav>
+
+        <!-- Clock Display -->
+        <div id="clockDisplay" class="content hidden">
+            <div class="clock-section">
+                <div id="currentTime" class="time-display">00:00:00</div>
+                <div id="currentDate" class="date-display">Loading...</div>
+            </div>
+            <div class="quote-section">
+                <div id="quoteText" class="quote-text">"Loading quote..."</div>
+                <div id="quoteAuthor" class="quote-author">- Anonymous</div>
+            </div>
+        </div>
+
+        <!-- Timer & Whitelist (Focus Tab) -->
+        <div class="timer-container">
+            <div id="timer" class="timer-section">
+                <!-- Timer will be rendered here -->
+            </div>
+        </div>
+
+        <div id="whitelistDisplay" class="whitelist-section">
+            <h3>Active Whitelist: <span id="activeListName">Default</span></h3>
+            <ul id="domainList"></ul>
+        </div>
+
+        <!-- To-Do List -->
+        <div id="todoDisplay" class="content hidden">
+            <h3>To-Do List for <span id="todoListName">Default</span></h3>
+            <div class="todo-input-container">
+                <input type="text" id="newTodoInput" placeholder="Add a new task..." />
+                <button id="addTodoButton" class="btn btn-primary">➕ Add</button>
+            </div>
+            <ul id="todo-list"></ul>
+        </div>
+
+        <!-- Settings -->
+        <div id="settingsPanel" class="content hidden">
+            <div class="settings-section">
+                <h3>Active List</h3>
+                <select id="list-select"></select>
+                <button id="new-list" class="btn">+ New List</button>
+                
+                <h3>Domains for Current List</h3>
+                <div class="domain-input">
+                    <input type="text" id="domain-input" placeholder="example.com" />
+                    <button id="add-domain" class="btn btn-primary">Add Domain</button>
+                </div>
+                <ul id="domain-list"></ul>
+
+                <h3>Timer Settings</h3>
+                <label class="toggle-label">
+                    <input type="checkbox" id="pomodoro-toggle" />
+                    <span>Enable Pomodoro Mode</span>
+                </label>
+
+                <div id="pomodoro-config" class="pomodoro-config hidden">
+                    <div class="config-row">
+                        <label>Work: <input type="number" id="pomo-work" value="25" min="1" max="120" /> min</label>
+                        <label>Break: <input type="number" id="pomo-break" value="5" min="1" max="60" /> min</label>
+                        <label>Long Break: <input type="number" id="pomo-long" value="15" min="1" max="60" /> min</label>
+                    </div>
+                    <button id="save-pomo" class="btn btn-primary">Save Pomodoro Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="newtab.js"></script>
+</body>
+</html>
