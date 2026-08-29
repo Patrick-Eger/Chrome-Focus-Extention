@@ -13,7 +13,7 @@ that block every website outside the active workspace allowlist.
 - Customizable dashboard start page: show, hide, reorder, and re-column the
   Focus session, Day plan, Next tasks, Upcoming, and Obsidian recall cards
 - Optional dashboard background photo from the personal image library, with an
-  adjustable readability overlay
+  adjustable readability overlay and adjustable card transparency
 - System, light, and dark display modes with four shared UI color palettes
 - Configurable Moment layout, clock format and size, overlay, visible elements, and quote source
 - Random or personal quotes with either online photos or a personal background-image library
@@ -77,8 +77,8 @@ that block every website outside the active workspace allowlist.
   export records without changing existing project or note content
 - Automatic v15 migration that adds standalone reminders without converting them
   into work blocks or focus sessions
-- Automatic v16 migration that adds the start-page layout and dashboard
-  background settings without changing any existing card
+- Automatic v16 migration that adds the start-page layout, dashboard background,
+  and card-transparency settings without changing any existing card
 
 All productivity data is stored in `chrome.storage.local`. No backend or account is
 required for the extension itself.
@@ -179,9 +179,13 @@ Hiding every card leaves a short note pointing back to these settings.
 The same section can put a background photo behind the dashboard. It draws from
 the personal image library shared with Moment mode, so images added under
 **Moment screen** are available here too and a different one is chosen on every
-new tab. The readability overlay fades the photo behind the interface; panels
-become translucent only while a photo is active. With an empty library the
-setting reports that no images are saved and the dashboard stays plain.
+new tab. Two sliders control how much of it shows. **Readability overlay** fades
+the photo behind the whole interface, and **Card transparency** sets how far the
+cards themselves let it through, from fully opaque to almost invisible. Cards
+become translucent only while a photo is active, and the sidebar and top bar keep
+a minimum opacity of their own so navigation stays readable at any slider
+position. With an empty library the setting reports that no images are saved and
+the dashboard stays plain.
 
 The **Appearance** settings offer System, Light, and Dark display modes. System
 follows the operating-system preference; the selected mode and accent palette apply

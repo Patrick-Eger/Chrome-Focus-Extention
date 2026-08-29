@@ -4057,6 +4057,15 @@ function bindDashboardLayoutSettings() {
     await save({ settings: { ...state.settings, dashboardOverlay: clamp(event.target.value, 0, 90, 55) } });
   });
 
+  $('#dashboardPanelTransparency').addEventListener('input', (event) => {
+    $('#dashboardPanelTransparencyValue').textContent = `${event.target.value}%`;
+    setDashboardPanelTransparency(event.target.value);
+  });
+
+  $('#dashboardPanelTransparency').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardPanelTransparency: clamp(event.target.value, 0, 85, 30) } });
+  });
+
   $('#dashboardNewBackground').addEventListener('click', async () => {
     dashboardBackgroundLoaded = false;
     await refreshDashboardBackground();
@@ -4069,11 +4078,15 @@ function renderDashboardBackgroundSettings() {
   const overlay = clamp(state.settings.dashboardOverlay, 0, 90, 55);
   $('#dashboardOverlay').value = overlay;
   $('#dashboardOverlayValue').textContent = `${overlay}%`;
+  const transparency = clamp(state.settings.dashboardPanelTransparency, 0, 85, 30);
+  $('#dashboardPanelTransparency').value = transparency;
+  $('#dashboardPanelTransparencyValue').textContent = `${transparency}%`;
   $('#dashboardBackgroundOptions').classList.toggle('hidden', state.settings.dashboardBackground !== 'library');
 }
 
 function applyDashboardBackground() {
   document.documentElement.style.setProperty('--dashboard-overlay', clamp(state.settings.dashboardOverlay, 0, 90, 55) / 100);
+  setDashboardPanelTransparency(state.settings.dashboardPanelTransparency);
   if (state.settings.dashboardBackground !== 'library') {
     dashboardBackgroundLoaded = false;
     clearDashboardBackground();
@@ -4114,6 +4127,13 @@ async function refreshDashboardBackground() {
   backdropImage.src = dashboardObjectUrl;
   $('#dashboardBackdrop').classList.remove('hidden');
   document.body.classList.add('dashboard-has-background');
+}
+
+function setDashboardPanelTransparency(value) {
+  // Stored as transparency so the slider reads the way the label does; CSS wants
+  // the opaque share for color-mix.
+  const transparency = clamp(value, 0, 85, 30);
+  document.documentElement.style.setProperty('--dashboard-panel-opacity', `${100 - transparency}%`);
 }
 
 function clearDashboardBackground() {

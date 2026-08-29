@@ -11,6 +11,7 @@
   --topbar-background: rgba(255, 255, 255, .96);
   --moment-overlay: .42;
   --dashboard-overlay: .55;
+  --dashboard-panel-opacity: 70%;
   --panel-bg: var(--paper);
   --panel-surface: var(--surface);
   --sidebar: 224px;
@@ -1155,13 +1156,16 @@ textarea { resize: vertical; line-height: 1.55; }
 body.moment-active .dashboard-backdrop { display: none; }
 
 body.dashboard-has-background {
-  --panel-bg: color-mix(in srgb, var(--paper) 82%, transparent);
-  --panel-surface: color-mix(in srgb, var(--surface) 78%, transparent);
-  --topbar-background: color-mix(in srgb, var(--paper) 80%, transparent);
+  --panel-bg: color-mix(in srgb, var(--paper) var(--dashboard-panel-opacity), transparent);
+  --panel-surface: color-mix(in srgb, var(--surface) var(--dashboard-panel-opacity), transparent);
+  /* The shell stays more opaque than the cards so navigation keeps its contrast
+     however far the card-transparency slider is pushed. */
+  --shell-bg: color-mix(in srgb, var(--paper) max(72%, var(--dashboard-panel-opacity)), transparent);
+  --topbar-background: var(--shell-bg);
   background: transparent;
 }
 body.dashboard-has-background .app-shell { position: relative; z-index: 1; background: transparent; }
-body.dashboard-has-background .sidebar { background: var(--panel-bg); backdrop-filter: blur(18px); }
+body.dashboard-has-background .sidebar { background: var(--shell-bg); backdrop-filter: blur(18px); }
 body.dashboard-has-background .topbar { backdrop-filter: blur(18px); }
 body.dashboard-has-background .panel,
 body.dashboard-has-background .focus-band { backdrop-filter: blur(18px); }

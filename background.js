@@ -93,7 +93,8 @@ const DEFAULTS = {
     dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
     dashboardShowTaskBank: true,
     dashboardBackground: 'none',
-    dashboardOverlay: 55
+    dashboardOverlay: 55,
+    dashboardPanelTransparency: 30
   },
   focus: {
     active: false,
@@ -1846,7 +1847,8 @@ function normalizeSettings(settings) {
     dashboardWidgets: normalizeDashboardWidgets(settings.dashboardWidgets),
     dashboardShowTaskBank: settings.dashboardShowTaskBank !== false,
     dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
-    dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55)
+    dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
+    dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
   };
 }
 
