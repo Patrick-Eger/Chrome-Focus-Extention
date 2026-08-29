@@ -10,6 +10,10 @@ that block every website outside the active workspace allowlist.
 - 25, 50, and 90 minute focus sessions
 - Click-to-edit custom focus sessions from 1 to 180 minutes
 - Switchable dashboard and full-screen Moment new-tab modes
+- Customizable dashboard start page: show, hide, reorder, and re-column the
+  Focus session, Day plan, Next tasks, Upcoming, and Obsidian recall cards
+- Optional dashboard background photo from the personal image library, with an
+  adjustable readability overlay
 - System, light, and dark display modes with four shared UI color palettes
 - Configurable Moment layout, clock format and size, overlay, visible elements, and quote source
 - Random or personal quotes with either online photos or a personal background-image library
@@ -73,6 +77,8 @@ that block every website outside the active workspace allowlist.
   export records without changing existing project or note content
 - Automatic v15 migration that adds standalone reminders without converting them
   into work blocks or focus sessions
+- Automatic v16 migration that adds the start-page layout and dashboard
+  background settings without changing any existing card
 
 All productivity data is stored in `chrome.storage.local`. No backend or account is
 required for the extension itself.
@@ -163,6 +169,19 @@ number of minutes.
 Use **Save page to Inbox** in the popup for a one-click link capture. Open the side
 panel when the page needs context or should go directly into a project. The page
 context menu can also create an Inbox link/task or open the project capture panel.
+
+**Settings > Start page** controls the dashboard home. Every card can be hidden,
+reordered, and moved between the full-width band, the main column, and the side
+column, either by dragging a row or with its arrow buttons. The task bank beside
+the day timeline has its own toggle, and **Reset layout** restores the defaults.
+Hiding every card leaves a short note pointing back to these settings.
+
+The same section can put a background photo behind the dashboard. It draws from
+the personal image library shared with Moment mode, so images added under
+**Moment screen** are available here too and a different one is chosen on every
+new tab. The readability overlay fades the photo behind the interface; panels
+become translucent only while a photo is active. With an empty library the
+setting reports that no images are saved and the dashboard stays plain.
 
 The **Appearance** settings offer System, Light, and Dark display modes. System
 follows the operating-system preference; the selected mode and accent palette apply

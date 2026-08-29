@@ -35,6 +35,10 @@ let editingWorkBlockId = null;
 let editingWorkBlockDate = null;
 let editingReminderId = null;
 let draggedWorkBlockId = null;
+let draggedWidgetId = null;
+let pendingWidgetFocus = null;
+let dashboardObjectUrl = null;
+let dashboardBackgroundLoaded = false;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -47,6 +51,23 @@ const TASK_STATUS_LABELS = {
   'in-progress': 'In progress',
   waiting: 'Waiting',
   done: 'Done'
+};
+
+const DASHBOARD_LANES = ['full', 'main', 'side'];
+const DASHBOARD_LANE_LABELS = { full: 'Full width', main: 'Main column', side: 'Side column' };
+const DEFAULT_DASHBOARD_WIDGETS = [
+  { id: 'focus', lane: 'full', visible: true },
+  { id: 'dayPlan', lane: 'main', visible: true },
+  { id: 'tasks', lane: 'side', visible: true },
+  { id: 'upcoming', lane: 'side', visible: true },
+  { id: 'recall', lane: 'side', visible: true }
+];
+const DASHBOARD_WIDGET_META = {
+  focus: { title: 'Focus session', description: 'Timer, workspace picker, and start control.' },
+  dayPlan: { title: 'Day plan', description: 'Timeline, work blocks, reminders, and review.' },
+  tasks: { title: 'Next tasks', description: 'The open tasks waiting for attention.' },
+  upcoming: { title: 'Upcoming', description: 'The next calendar events and reminders.' },
+  recall: { title: 'Obsidian recall', description: 'A random tagged note from the vault.' }
 };
 
 const OBSIDIAN_DATABASE = 'focus-desk-integrations';
@@ -161,6 +182,8 @@ function render() {
     ? state.obsidianSyncRecords
     : {};
   applyPalette();
+  applyDashboardLayout();
+  applyDashboardBackground();
   renderWorkspaceOptions();
   renderFocus();
   renderDayRail();
@@ -3672,6 +3695,7 @@ async function removeObsidianVaultHandle() {
 }
 
 function bindSettings() {
+  bindDashboardLayoutSettings();
   $('#momentOverlay').addEventListener('input', (event) => {
     $('#momentOverlayValue').textContent = `${event.target.value}%`;
   });
@@ -3805,6 +3829,8 @@ function renderSettings() {
     $('#obsidianExportFolder').value = normalizeObsidianExportFolder(state.settings.obsidianExportFolder);
   }
   $('#obsidianIncludeArchivedProjects').checked = Boolean(state.settings.obsidianIncludeArchivedProjects);
+  renderDashboardWidgetList();
+  renderDashboardBackgroundSettings();
   toggleCustomQuoteFields();
   updateMomentImageStatus();
   renderObsidianSettings();
@@ -3823,6 +3849,281 @@ function applyPalette() {
     : 'system';
   document.documentElement.dataset.palette = palette;
   document.documentElement.dataset.theme = colorMode;
+}
+
+function applyDashboardLayout() {
+  const widgets = dashboardWidgets();
+  const lanes = new Map(DASHBOARD_LANES.map((lane) => [lane, $(`[data-lane="${lane}"]`)]));
+  const desired = new Map(DASHBOARD_LANES.map((lane) => [lane, []]));
+  for (const widget of widgets) {
+    const element = $(`[data-widget="${widget.id}"]`);
+    if (!element) continue;
+    element.classList.toggle('hidden', !widget.visible);
+    (desired.get(widget.lane) || desired.get('main')).push(element);
+  }
+
+  // Rendering happens on every storage broadcast, so only touch the DOM when the
+  // arrangement really changed - moving a node blurs whatever is focused inside it.
+  const rearranged = DASHBOARD_LANES.some((name) => {
+    const lane = lanes.get(name);
+    if (!lane) return false;
+    const wanted = desired.get(name);
+    const current = Array.from(lane.children);
+    return current.length !== wanted.length || current.some((child, index) => child !== wanted[index]);
+  });
+  if (rearranged) {
+    for (const [name, lane] of lanes) {
+      if (lane) desired.get(name).forEach((element) => lane.appendChild(element));
+    }
+  }
+
+  for (const [name, lane] of lanes) {
+    if (!lane) continue;
+    lane.classList.toggle('hidden', !desired.get(name).some((element) => !element.classList.contains('hidden')));
+  }
+  const grid = $('#dashboardGrid');
+  if (grid) {
+    grid.classList.toggle('single-column', $('#dashboardSide').classList.contains('hidden')
+      || $('#dashboardMain').classList.contains('hidden'));
+    grid.classList.toggle('hidden', $('#dashboardSide').classList.contains('hidden')
+      && $('#dashboardMain').classList.contains('hidden'));
+  }
+  const taskBank = $('[data-widget-part="taskBank"]');
+  if (taskBank) taskBank.classList.toggle('hidden', state.settings.dashboardShowTaskBank === false);
+  $('#dashboardEmptyState').classList.toggle('hidden', widgets.some((widget) => widget.visible));
+}
+
+function dashboardWidgets() {
+  const stored = Array.isArray(state.settings.dashboardWidgets) ? state.settings.dashboardWidgets : [];
+  const widgets = [];
+  const seen = new Set();
+  for (const entry of stored) {
+    const id = entry && typeof entry === 'object' ? entry.id : entry;
+    const fallback = DEFAULT_DASHBOARD_WIDGETS.find((widget) => widget.id === id);
+    if (!fallback || seen.has(id)) continue;
+    seen.add(id);
+    widgets.push({
+      id,
+      lane: DASHBOARD_LANES.includes(entry && entry.lane) ? entry.lane : fallback.lane,
+      visible: !(entry && entry.visible === false)
+    });
+  }
+  for (const fallback of DEFAULT_DASHBOARD_WIDGETS) {
+    if (!seen.has(fallback.id)) widgets.push({ ...fallback });
+  }
+  return widgets;
+}
+
+async function saveDashboardWidgets(widgets, focusKey = '') {
+  // A storage write echoes back as a stateUpdate broadcast, so the list renders
+  // twice. Keep the focus target alive for both renders, then let it expire.
+  pendingWidgetFocus = focusKey ? { key: focusKey, until: Date.now() + 800 } : null;
+  await save({ settings: { ...state.settings, dashboardWidgets: widgets } });
+}
+
+function renderDashboardWidgetList() {
+  const list = $('#dashboardWidgetList');
+  if (!list) return;
+  const widgets = dashboardWidgets();
+  list.innerHTML = widgets.map((widget, index) => {
+    const meta = DASHBOARD_WIDGET_META[widget.id];
+    const laneOptions = DASHBOARD_LANES
+      .map((lane) => `<option value="${lane}"${lane === widget.lane ? ' selected' : ''}>${DASHBOARD_LANE_LABELS[lane]}</option>`)
+      .join('');
+    return `
+      <li class="widget-row${widget.visible ? '' : ' widget-hidden'}" draggable="true" data-widget-id="${widget.id}">
+        <span class="widget-handle" aria-hidden="true">⠿</span>
+        <label class="widget-toggle">
+          <input type="checkbox" data-widget-visible="${widget.id}"${widget.visible ? ' checked' : ''}>
+          <span><strong>${escapeHtml(meta.title)}</strong>${escapeHtml(meta.description)}</span>
+        </label>
+        <select class="widget-lane" data-widget-lane="${widget.id}" aria-label="Column for ${escapeHtml(meta.title)}">${laneOptions}</select>
+        <span class="widget-move">
+          <button type="button" data-widget-move="up" data-widget-id="${widget.id}" aria-label="Move ${escapeHtml(meta.title)} up"${index === 0 ? ' disabled' : ''}>↑</button>
+          <button type="button" data-widget-move="down" data-widget-id="${widget.id}" aria-label="Move ${escapeHtml(meta.title)} down"${index === widgets.length - 1 ? ' disabled' : ''}>↓</button>
+        </span>
+      </li>`;
+  }).join('');
+  $('#dashboardShowTaskBank').checked = state.settings.dashboardShowTaskBank !== false;
+  restoreWidgetFocus();
+}
+
+function restoreWidgetFocus() {
+  if (!pendingWidgetFocus) return;
+  if (Date.now() > pendingWidgetFocus.until) {
+    pendingWidgetFocus = null;
+    return;
+  }
+  const [widgetId, direction] = pendingWidgetFocus.key.split(':');
+  const target = $(`[data-widget-move="${direction}"][data-widget-id="${widgetId}"]`);
+  if (target && !target.disabled) target.focus();
+  else $(`[data-widget-id="${widgetId}"] [data-widget-move]:not(:disabled)`)?.focus();
+}
+
+function bindDashboardLayoutSettings() {
+  const list = $('#dashboardWidgetList');
+  if (!list) return;
+
+  list.addEventListener('change', async (event) => {
+    const visibleId = event.target.dataset.widgetVisible;
+    if (visibleId) {
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === visibleId
+        ? { ...widget, visible: event.target.checked }
+        : widget)));
+      return;
+    }
+    const laneId = event.target.dataset.widgetLane;
+    if (laneId) {
+      const lane = DASHBOARD_LANES.includes(event.target.value) ? event.target.value : 'main';
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === laneId
+        ? { ...widget, lane }
+        : widget)));
+    }
+  });
+
+  list.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-widget-move]');
+    if (!button) return;
+    const widgets = dashboardWidgets();
+    const index = widgets.findIndex((widget) => widget.id === button.dataset.widgetId);
+    const target = button.dataset.widgetMove === 'up' ? index - 1 : index + 1;
+    if (index < 0 || target < 0 || target >= widgets.length) return;
+    [widgets[index], widgets[target]] = [widgets[target], widgets[index]];
+    await saveDashboardWidgets(widgets, `${button.dataset.widgetId}:${button.dataset.widgetMove}`);
+  });
+
+  list.addEventListener('dragstart', (event) => {
+    const row = event.target.closest('[data-widget-id]');
+    if (!row) return;
+    draggedWidgetId = row.dataset.widgetId;
+    row.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', draggedWidgetId);
+  });
+
+  list.addEventListener('dragend', () => {
+    draggedWidgetId = null;
+    $$('.widget-row').forEach((row) => row.classList.remove('dragging', 'drop-target'));
+  });
+
+  list.addEventListener('dragover', (event) => {
+    if (!draggedWidgetId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const row = event.target.closest('[data-widget-id]');
+    $$('.widget-row').forEach((item) => item.classList.toggle('drop-target', item === row && item.dataset.widgetId !== draggedWidgetId));
+  });
+
+  list.addEventListener('drop', async (event) => {
+    if (!draggedWidgetId) return;
+    event.preventDefault();
+    const row = event.target.closest('[data-widget-id]');
+    const widgets = dashboardWidgets();
+    const from = widgets.findIndex((widget) => widget.id === draggedWidgetId);
+    const to = row ? widgets.findIndex((widget) => widget.id === row.dataset.widgetId) : widgets.length - 1;
+    draggedWidgetId = null;
+    if (from < 0 || to < 0 || from === to) return renderDashboardWidgetList();
+    const [moved] = widgets.splice(from, 1);
+    widgets.splice(to, 0, moved);
+    await saveDashboardWidgets(widgets);
+  });
+
+  $('#dashboardShowTaskBank').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardShowTaskBank: event.target.checked } });
+  });
+
+  $('#resetDashboardLayout').addEventListener('click', async () => {
+    await save({
+      settings: {
+        ...state.settings,
+        dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+        dashboardShowTaskBank: true
+      }
+    });
+    showToast('Start page layout reset.');
+  });
+
+  $$('input[name="dashboardBackground"]').forEach((input) => input.addEventListener('change', async (event) => {
+    dashboardBackgroundLoaded = false;
+    await save({ settings: { ...state.settings, dashboardBackground: event.target.value === 'library' ? 'library' : 'none' } });
+  }));
+
+  $('#dashboardOverlay').addEventListener('input', (event) => {
+    $('#dashboardOverlayValue').textContent = `${event.target.value}%`;
+    document.documentElement.style.setProperty('--dashboard-overlay', clamp(event.target.value, 0, 90, 55) / 100);
+  });
+
+  $('#dashboardOverlay').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardOverlay: clamp(event.target.value, 0, 90, 55) } });
+  });
+
+  $('#dashboardNewBackground').addEventListener('click', async () => {
+    dashboardBackgroundLoaded = false;
+    await refreshDashboardBackground();
+  });
+}
+
+function renderDashboardBackgroundSettings() {
+  const source = $(`input[name="dashboardBackground"][value="${state.settings.dashboardBackground === 'library' ? 'library' : 'none'}"]`);
+  if (source) source.checked = true;
+  const overlay = clamp(state.settings.dashboardOverlay, 0, 90, 55);
+  $('#dashboardOverlay').value = overlay;
+  $('#dashboardOverlayValue').textContent = `${overlay}%`;
+  $('#dashboardBackgroundOptions').classList.toggle('hidden', state.settings.dashboardBackground !== 'library');
+}
+
+function applyDashboardBackground() {
+  document.documentElement.style.setProperty('--dashboard-overlay', clamp(state.settings.dashboardOverlay, 0, 90, 55) / 100);
+  if (state.settings.dashboardBackground !== 'library') {
+    dashboardBackgroundLoaded = false;
+    clearDashboardBackground();
+    return;
+  }
+  if (!dashboardBackgroundLoaded) {
+    refreshDashboardBackground().catch((error) => showToast(error.message));
+    return;
+  }
+  const hasImage = Boolean(dashboardObjectUrl);
+  document.body.classList.toggle('dashboard-has-background', hasImage);
+  $('#dashboardBackdrop').classList.toggle('hidden', !hasImage);
+}
+
+async function refreshDashboardBackground() {
+  dashboardBackgroundLoaded = true;
+  const status = $('#dashboardBackgroundStatus');
+  let image = null;
+  try {
+    image = await getRandomMomentImage();
+  } catch (_) {
+    if (status) status.textContent = 'Personal image storage is unavailable.';
+    return;
+  }
+  if (!image) {
+    clearDashboardBackground();
+    if (status) status.textContent = 'No personal images saved yet. Add images below to use them here.';
+    return;
+  }
+  if (status) {
+    const count = await countMomentImages();
+    status.textContent = `Showing a random photo from ${count} saved image${count === 1 ? '' : 's'}.`;
+  }
+  if (dashboardObjectUrl) URL.revokeObjectURL(dashboardObjectUrl);
+  dashboardObjectUrl = URL.createObjectURL(image.blob);
+  const backdropImage = $('#dashboardBackdropImage');
+  backdropImage.onerror = () => clearDashboardBackground();
+  backdropImage.src = dashboardObjectUrl;
+  $('#dashboardBackdrop').classList.remove('hidden');
+  document.body.classList.add('dashboard-has-background');
+}
+
+function clearDashboardBackground() {
+  if (dashboardObjectUrl) {
+    URL.revokeObjectURL(dashboardObjectUrl);
+    dashboardObjectUrl = null;
+  }
+  $('#dashboardBackdropImage').removeAttribute('src');
+  $('#dashboardBackdrop').classList.add('hidden');
+  document.body.classList.remove('dashboard-has-background');
 }
 
 function bindMomentMode() {

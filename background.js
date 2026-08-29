@@ -1,4 +1,4 @@
-const STORAGE_VERSION = 15;
+const STORAGE_VERSION = 16;
 const BLOCK_RULE_IDS = [1, 2];
 const FOCUS_ALARM = 'focus-session-end';
 const CALENDAR_SYNC_ALARM = 'calendar-background-sync';
@@ -13,6 +13,15 @@ const CONTEXT_CAPTURE_LINK = 'focus-desk-capture-link';
 const CONTEXT_CAPTURE_TASK = 'focus-desk-capture-task';
 const CONTEXT_SAVE_PROJECT = 'focus-desk-save-project';
 const CONTEXT_OPEN_PANEL = 'focus-desk-open-panel';
+const DASHBOARD_WIDGET_IDS = ['focus', 'dayPlan', 'tasks', 'upcoming', 'recall'];
+const DASHBOARD_LANES = ['full', 'main', 'side'];
+const DEFAULT_DASHBOARD_WIDGETS = [
+  { id: 'focus', lane: 'full', visible: true },
+  { id: 'dayPlan', lane: 'main', visible: true },
+  { id: 'tasks', lane: 'side', visible: true },
+  { id: 'upcoming', lane: 'side', visible: true },
+  { id: 'recall', lane: 'side', visible: true }
+];
 const SYSTEM_ALLOWLIST = [
   'accounts.google.com',
   'googleapis.com',
@@ -80,7 +89,11 @@ const DEFAULTS = {
     momentCustomAuthor: '',
     obsidianRecallTag: 'recall',
     obsidianExportFolder: 'Focus Desk',
-    obsidianIncludeArchivedProjects: false
+    obsidianIncludeArchivedProjects: false,
+    dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+    dashboardShowTaskBank: true,
+    dashboardBackground: 'none',
+    dashboardOverlay: 55
   },
   focus: {
     active: false,
@@ -273,7 +286,7 @@ function mergeDefaults(current) {
     ...DEFAULTS,
     ...current,
     storageVersion: STORAGE_VERSION,
-    settings: { ...DEFAULTS.settings, ...(current.settings || {}) },
+    settings: normalizeSettings({ ...DEFAULTS.settings, ...(current.settings || {}) }),
     focus: { ...DEFAULTS.focus, ...(current.focus || {}) },
     workspaces: (Array.isArray(current.workspaces) && current.workspaces.length
       ? current.workspaces
@@ -1825,6 +1838,36 @@ function workBlockStartAt(dateKey, time) {
 function cleanDomain(value) {
   if (typeof value !== 'string') return '';
   return value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split(':')[0];
+}
+
+function normalizeSettings(settings) {
+  return {
+    ...settings,
+    dashboardWidgets: normalizeDashboardWidgets(settings.dashboardWidgets),
+    dashboardShowTaskBank: settings.dashboardShowTaskBank !== false,
+    dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
+    dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55)
+  };
+}
+
+function normalizeDashboardWidgets(value) {
+  const widgets = [];
+  const seen = new Set();
+  for (const entry of Array.isArray(value) ? value : []) {
+    const id = entry && typeof entry === 'object' ? entry.id : entry;
+    if (!DASHBOARD_WIDGET_IDS.includes(id) || seen.has(id)) continue;
+    seen.add(id);
+    const fallback = DEFAULT_DASHBOARD_WIDGETS.find((widget) => widget.id === id);
+    widgets.push({
+      id,
+      lane: DASHBOARD_LANES.includes(entry && entry.lane) ? entry.lane : fallback.lane,
+      visible: !(entry && entry.visible === false)
+    });
+  }
+  for (const fallback of DEFAULT_DASHBOARD_WIDGETS) {
+    if (!seen.has(fallback.id)) widgets.push({ ...fallback });
+  }
+  return widgets;
 }
 
 function normalizeDailyPlans(value, fallbackWorkspaceId = 'default') {

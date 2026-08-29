@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="newtab.css">
 </head>
 <body>
+  <div id="dashboardBackdrop" class="dashboard-backdrop hidden" aria-hidden="true">
+    <img id="dashboardBackdropImage" alt="">
+  </div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -48,7 +51,10 @@
       </header>
 
       <section id="todayView" class="view active" data-title="Plan the day">
-        <div class="focus-band">
+        <p id="dashboardEmptyState" class="dashboard-empty-state hidden">Every start-page card is hidden. Turn cards back on under <button class="text-button" data-go-view="settings" type="button">Settings &rsaquo; Start page</button>.</p>
+
+        <div id="dashboardFull" class="dashboard-lane dashboard-full" data-lane="full">
+        <div class="focus-band" data-widget="focus">
           <div class="focus-copy">
             <span class="eyebrow">Current session</span>
             <button id="focusTimer" class="focus-timer" type="button" title="Change session length" aria-expanded="false" aria-controls="focusDurationEditor">25:00</button>
@@ -77,8 +83,11 @@
           </div>
         </div>
 
-        <div class="dashboard-grid">
-          <section class="panel day-panel">
+        </div>
+
+        <div id="dashboardGrid" class="dashboard-grid">
+          <div id="dashboardMain" class="dashboard-lane dashboard-main" data-lane="main">
+          <section class="panel day-panel" data-widget="dayPlan">
             <div class="panel-header">
               <div>
                 <span class="eyebrow">Day plan</span>
@@ -105,7 +114,7 @@
             </form>
             <div class="day-planner-layout">
               <div id="dayRail" class="day-rail" aria-label="Today timeline"></div>
-              <aside class="planner-task-bank">
+              <aside class="planner-task-bank" data-widget-part="taskBank">
                 <div class="workspace-subheading">
                   <div><span class="eyebrow">Task bank</span><h3>Ready to schedule</h3></div>
                   <span id="plannerTaskCount">0</span>
@@ -123,8 +132,10 @@
             </section>
           </section>
 
-          <div class="dashboard-side">
-            <section class="panel compact-panel">
+          </div>
+
+          <div id="dashboardSide" class="dashboard-lane dashboard-side" data-lane="side">
+            <section class="panel compact-panel" data-widget="tasks">
               <div class="panel-header">
                 <h2>Next tasks</h2>
                 <button class="text-button" data-go-view="tasks">View all</button>
@@ -132,7 +143,7 @@
               <div id="todayTasks" class="compact-list"></div>
             </section>
 
-            <section class="panel compact-panel">
+            <section class="panel compact-panel" data-widget="upcoming">
               <div class="panel-header">
                 <h2>Upcoming</h2>
                 <button class="text-button" data-go-view="calendar">Calendar</button>
@@ -140,7 +151,7 @@
               <div id="calendarPreview" class="compact-list"></div>
             </section>
 
-            <section class="panel compact-panel recall-panel">
+            <section class="panel compact-panel recall-panel" data-widget="recall">
               <div class="panel-header">
                 <div><span class="eyebrow">Obsidian recall</span><h2 id="obsidianRecallTitle">Random note</h2></div>
                 <button id="nextObsidianRecall" class="text-button" type="button">Another note</button>
@@ -474,6 +485,29 @@
             <label class="field-label">Default task estimate
               <span class="input-with-unit"><input id="defaultTaskEstimateMinutes" type="number" min="5" max="240" step="5"><span>minutes</span></span>
             </label>
+          </section>
+          <section class="settings-section start-page-settings">
+            <span class="eyebrow">Dashboard home</span>
+            <h2>Start page</h2>
+            <p>Choose which cards the dashboard shows, which column they sit in, and how they are ordered.</p>
+            <ul id="dashboardWidgetList" class="widget-list"></ul>
+            <div class="widget-list-footer">
+              <label class="toggle-setting"><input id="dashboardShowTaskBank" type="checkbox"><span><strong>Task bank</strong>Show the drag-and-drop task list beside the day timeline.</span></label>
+              <button id="resetDashboardLayout" class="text-button" type="button">Reset layout</button>
+            </div>
+            <h3 class="appearance-subheading">Background</h3>
+            <div class="choice-options">
+              <label><input type="radio" name="dashboardBackground" value="none"> <span><strong>None</strong>Plain background in your display mode.</span></label>
+              <label><input type="radio" name="dashboardBackground" value="library"> <span><strong>My images</strong>A random photo from your image library on every new tab.</span></label>
+            </div>
+            <div id="dashboardBackgroundOptions" class="dashboard-background-options hidden">
+              <label class="overlay-field" for="dashboardOverlay"><span>Readability overlay</span><output id="dashboardOverlayValue">55%</output></label>
+              <input id="dashboardOverlay" type="range" min="0" max="90" step="1">
+              <div class="button-row">
+                <button id="dashboardNewBackground" class="button secondary small" type="button">Another photo</button>
+              </div>
+              <p id="dashboardBackgroundStatus" class="form-status"></p>
+            </div>
           </section>
           <section class="settings-section moment-settings">
             <span class="eyebrow">New tab appearance</span>
