@@ -12,6 +12,8 @@ that block every website outside the active workspace allowlist.
 - Switchable dashboard and full-screen Moment new-tab modes
 - Customizable dashboard start page: show, hide, reorder, and re-column the
   Focus session, Day plan, Next tasks, Upcoming, and Obsidian recall cards
+- On-dashboard editing mode that arranges those cards by dragging them where
+  they sit, with background and transparency sliders that preview live
 - Optional dashboard background photo from the personal image library, with an
   adjustable readability overlay and adjustable card transparency
 - System, light, and dark display modes with four shared UI color palettes
@@ -170,11 +172,23 @@ Use **Save page to Inbox** in the popup for a one-click link capture. Open the s
 panel when the page needs context or should go directly into a project. The page
 context menu can also create an Inbox link/task or open the project capture panel.
 
-**Settings > Start page** controls the dashboard home. Every card can be hidden,
-reordered, and moved between the full-width band, the main column, and the side
-column, either by dragging a row or with its arrow buttons. The task bank beside
-the day timeline has its own toggle, and **Reset layout** restores the defaults.
-Hiding every card leaves a short note pointing back to these settings.
+The start page can be arranged from either of two places, both writing the same
+settings.
+
+**Customize** on the Today view opens an editing mode on the dashboard itself.
+Each card gets a bar naming it and its column, cards are dragged where they
+should go - onto another card to sit before it, or onto empty column space to
+land at the end - and **Hide** removes one into a tray that puts it back. Empty
+columns stay on screen as drop targets while editing. The card contents are inert
+in this mode, so a card can be grabbed anywhere without triggering its controls.
+The same panel carries the task-bank toggle, the background switch, and both
+sliders, so every change previews on the real dashboard underneath. **Done**
+leaves the mode.
+
+**Settings > Start page** offers the same control as an ordered list, which is
+the keyboard-friendly path: a checkbox, a column dropdown, and arrow buttons per
+card. **Reset layout** in either place restores the defaults. Hiding every card
+leaves a short note pointing back to the settings.
 
 The same section can put a background photo behind the dashboard. It draws from
 the personal image library shared with Moment mode, so images added under

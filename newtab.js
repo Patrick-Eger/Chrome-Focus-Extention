@@ -36,6 +36,9 @@ let editingWorkBlockDate = null;
 let editingReminderId = null;
 let draggedWorkBlockId = null;
 let draggedWidgetId = null;
+let draggedDashboardCard = null;
+let dashboardEditing = false;
+let dashboardPhotoStatus = '';
 let pendingWidgetFocus = null;
 let dashboardObjectUrl = null;
 let dashboardBackgroundLoaded = false;
@@ -3879,7 +3882,10 @@ function applyDashboardLayout() {
 
   for (const [name, lane] of lanes) {
     if (!lane) continue;
-    lane.classList.toggle('hidden', !desired.get(name).some((element) => !element.classList.contains('hidden')));
+    const laneHasCards = desired.get(name).some((element) => !element.classList.contains('hidden'));
+    // While editing, an empty lane stays on screen as a drop target.
+    lane.classList.toggle('hidden', !laneHasCards && !dashboardEditing);
+    lane.classList.toggle('lane-empty', !laneHasCards);
   }
   const grid = $('#dashboardGrid');
   if (grid) {
@@ -3890,7 +3896,196 @@ function applyDashboardLayout() {
   }
   const taskBank = $('[data-widget-part="taskBank"]');
   if (taskBank) taskBank.classList.toggle('hidden', state.settings.dashboardShowTaskBank === false);
-  $('#dashboardEmptyState').classList.toggle('hidden', widgets.some((widget) => widget.visible));
+  $('#dashboardEmptyState').classList.toggle('hidden', dashboardEditing || widgets.some((widget) => widget.visible));
+  renderDashboardEditor();
+}
+
+function bindDashboardEditor() {
+  $('#toggleDashboardEditing').addEventListener('click', () => setDashboardEditing(!dashboardEditing));
+  $('#doneDashboardEditing').addEventListener('click', () => setDashboardEditing(false));
+
+  $('#dashboardResetLayout').addEventListener('click', async () => {
+    await save({
+      settings: {
+        ...state.settings,
+        dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
+        dashboardShowTaskBank: true
+      }
+    });
+    showToast('Start page layout reset.');
+  });
+
+  $('#dashboardEditTaskBank').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardShowTaskBank: event.target.checked } });
+  });
+
+  $('#dashboardEditBackground').addEventListener('change', async (event) => {
+    dashboardBackgroundLoaded = false;
+    await save({ settings: { ...state.settings, dashboardBackground: event.target.checked ? 'library' : 'none' } });
+  });
+
+  $('#dashboardEditOverlay').addEventListener('input', (event) => {
+    $('#dashboardEditOverlayValue').textContent = `${event.target.value}%`;
+    document.documentElement.style.setProperty('--dashboard-overlay', clamp(event.target.value, 0, 90, 55) / 100);
+  });
+  $('#dashboardEditOverlay').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardOverlay: clamp(event.target.value, 0, 90, 55) } });
+  });
+
+  $('#dashboardEditTransparency').addEventListener('input', (event) => {
+    $('#dashboardEditTransparencyValue').textContent = `${event.target.value}%`;
+    setDashboardPanelTransparency(event.target.value);
+  });
+  $('#dashboardEditTransparency').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, dashboardPanelTransparency: clamp(event.target.value, 0, 85, 30) } });
+  });
+
+  $('#dashboardEditNewPhoto').addEventListener('click', async () => {
+    dashboardBackgroundLoaded = false;
+    await refreshDashboardBackground();
+  });
+
+  $('#dashboardHiddenCards').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-widget-show]');
+    if (!button) return;
+    await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === button.dataset.widgetShow
+      ? { ...widget, visible: true }
+      : widget)));
+  });
+
+  const view = $('#todayView');
+
+  view.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-widget-hide]');
+    if (!button) return;
+    await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === button.dataset.widgetHide
+      ? { ...widget, visible: false }
+      : widget)));
+  });
+
+  view.addEventListener('dragstart', (event) => {
+    if (!dashboardEditing) return;
+    const card = event.target.closest('[data-widget]');
+    if (!card) return;
+    draggedDashboardCard = card.dataset.widget;
+    card.classList.add('card-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', draggedDashboardCard);
+  });
+
+  view.addEventListener('dragend', () => {
+    draggedDashboardCard = null;
+    clearDashboardDropHints();
+  });
+
+  view.addEventListener('dragover', (event) => {
+    if (!dashboardEditing || !draggedDashboardCard) return;
+    const lane = event.target.closest('[data-lane]');
+    if (!lane) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    clearDashboardDropHints();
+    const card = event.target.closest('[data-widget]');
+    if (card && card.dataset.widget !== draggedDashboardCard) card.classList.add('drop-before');
+    else if (!card) lane.classList.add('drop-into');
+  });
+
+  view.addEventListener('drop', async (event) => {
+    if (!dashboardEditing || !draggedDashboardCard) return;
+    const lane = event.target.closest('[data-lane]');
+    if (!lane) return;
+    event.preventDefault();
+    const card = event.target.closest('[data-widget]');
+    const movedId = draggedDashboardCard;
+    draggedDashboardCard = null;
+    clearDashboardDropHints();
+    await moveDashboardCard(movedId, lane.dataset.lane, card && card.dataset.widget);
+  });
+}
+
+function clearDashboardDropHints() {
+  $$('.card-dragging').forEach((element) => element.classList.remove('card-dragging'));
+  $$('.drop-before').forEach((element) => element.classList.remove('drop-before'));
+  $$('.drop-into').forEach((element) => element.classList.remove('drop-into'));
+}
+
+async function moveDashboardCard(movedId, lane, beforeId) {
+  if (!DASHBOARD_LANES.includes(lane) || movedId === beforeId) return;
+  const widgets = dashboardWidgets();
+  const from = widgets.findIndex((widget) => widget.id === movedId);
+  if (from < 0) return;
+  const [moved] = widgets.splice(from, 1);
+  moved.lane = lane;
+  moved.visible = true;
+
+  let index;
+  if (beforeId) {
+    index = widgets.findIndex((widget) => widget.id === beforeId);
+  } else {
+    // Dropped on empty lane space: park the card after the last card already there.
+    const lastInLane = widgets.map((widget) => widget.lane).lastIndexOf(lane);
+    index = lastInLane < 0 ? widgets.length : lastInLane + 1;
+  }
+  widgets.splice(index < 0 ? widgets.length : index, 0, moved);
+  await saveDashboardWidgets(widgets);
+}
+
+function setDashboardEditing(editing) {
+  dashboardEditing = Boolean(editing);
+  if (dashboardEditing) showView('today');
+  render();
+}
+
+function renderDashboardEditor() {
+  const toggle = $('#toggleDashboardEditing');
+  toggle.textContent = dashboardEditing ? 'Editing start page' : 'Customize';
+  toggle.setAttribute('aria-pressed', String(dashboardEditing));
+  toggle.classList.toggle('primary', dashboardEditing);
+  toggle.classList.toggle('secondary', !dashboardEditing);
+  $('#dashboardEditor').classList.toggle('hidden', !dashboardEditing);
+  document.body.classList.toggle('dashboard-editing', dashboardEditing);
+  if (!dashboardEditing) {
+    clearDashboardDropHints();
+    $$('.widget-edit-bar').forEach((bar) => bar.remove());
+    $$('[data-widget]').forEach((card) => card.removeAttribute('draggable'));
+    return;
+  }
+
+  const widgets = dashboardWidgets();
+  for (const widget of widgets) {
+    const card = $(`[data-widget="${widget.id}"]`);
+    if (!card) continue;
+    card.setAttribute('draggable', 'true');
+    let bar = card.querySelector(':scope > .widget-edit-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'widget-edit-bar';
+      // Absolutely positioned, so it never becomes a grid or flex item of the card.
+      card.appendChild(bar);
+    }
+    bar.innerHTML = `
+      <span class="widget-edit-title"><span aria-hidden="true">⠿</span> ${escapeHtml(DASHBOARD_WIDGET_META[widget.id].title)}</span>
+      <span class="widget-edit-lane">${DASHBOARD_LANE_LABELS[widget.lane]}</span>
+      <button type="button" data-widget-hide="${widget.id}">Hide</button>`;
+  }
+
+  const hidden = widgets.filter((widget) => !widget.visible);
+  $('#dashboardHiddenTray').classList.toggle('hidden', !hidden.length);
+  $('#dashboardHiddenCards').innerHTML = hidden.map((widget) => `
+    <button class="button secondary small" type="button" data-widget-show="${widget.id}">${escapeHtml(DASHBOARD_WIDGET_META[widget.id].title)} +</button>
+  `).join('');
+
+  $('#dashboardEditTaskBank').checked = state.settings.dashboardShowTaskBank !== false;
+  const usesPhoto = state.settings.dashboardBackground === 'library';
+  $('#dashboardEditBackground').checked = usesPhoto;
+  $('#dashboardEditSliders').classList.toggle('hidden', !usesPhoto);
+  const overlay = clamp(state.settings.dashboardOverlay, 0, 90, 55);
+  const transparency = clamp(state.settings.dashboardPanelTransparency, 0, 85, 30);
+  $('#dashboardEditOverlay').value = overlay;
+  $('#dashboardEditOverlayValue').textContent = `${overlay}%`;
+  $('#dashboardEditTransparency').value = transparency;
+  $('#dashboardEditTransparencyValue').textContent = `${transparency}%`;
+  $('#dashboardEditPhotoStatus').textContent = dashboardPhotoStatus;
 }
 
 function dashboardWidgets() {
@@ -3961,6 +4156,7 @@ function restoreWidgetFocus() {
 }
 
 function bindDashboardLayoutSettings() {
+  bindDashboardEditor();
   const list = $('#dashboardWidgetList');
   if (!list) return;
 
@@ -4103,23 +4299,20 @@ function applyDashboardBackground() {
 
 async function refreshDashboardBackground() {
   dashboardBackgroundLoaded = true;
-  const status = $('#dashboardBackgroundStatus');
   let image = null;
   try {
     image = await getRandomMomentImage();
   } catch (_) {
-    if (status) status.textContent = 'Personal image storage is unavailable.';
+    setDashboardPhotoStatus('Personal image storage is unavailable.');
     return;
   }
   if (!image) {
     clearDashboardBackground();
-    if (status) status.textContent = 'No personal images saved yet. Add images below to use them here.';
+    setDashboardPhotoStatus('No personal images saved yet. Add images under Moment screen to use them here.');
     return;
   }
-  if (status) {
-    const count = await countMomentImages();
-    status.textContent = `Showing a random photo from ${count} saved image${count === 1 ? '' : 's'}.`;
-  }
+  const count = await countMomentImages();
+  setDashboardPhotoStatus(`Showing a random photo from ${count} saved image${count === 1 ? '' : 's'}.`);
   if (dashboardObjectUrl) URL.revokeObjectURL(dashboardObjectUrl);
   dashboardObjectUrl = URL.createObjectURL(image.blob);
   const backdropImage = $('#dashboardBackdropImage');
@@ -4127,6 +4320,14 @@ async function refreshDashboardBackground() {
   backdropImage.src = dashboardObjectUrl;
   $('#dashboardBackdrop').classList.remove('hidden');
   document.body.classList.add('dashboard-has-background');
+}
+
+function setDashboardPhotoStatus(message) {
+  dashboardPhotoStatus = message;
+  const settingsStatus = $('#dashboardBackgroundStatus');
+  if (settingsStatus) settingsStatus.textContent = message;
+  const editorStatus = $('#dashboardEditPhotoStatus');
+  if (editorStatus) editorStatus.textContent = message;
 }
 
 function setDashboardPanelTransparency(value) {

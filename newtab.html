@@ -51,6 +51,37 @@
       </header>
 
       <section id="todayView" class="view active" data-title="Plan the day">
+        <div class="dashboard-toolbar">
+          <button id="toggleDashboardEditing" class="button secondary small" type="button" aria-pressed="false">Customize</button>
+          <div id="dashboardEditor" class="dashboard-editor hidden">
+            <div class="dashboard-editor-row">
+              <p class="dashboard-editor-hint">Drag a card to move it. Cards can sit in the full-width band, the main column, or the side column.</p>
+              <div class="button-row">
+                <button id="dashboardResetLayout" class="text-button" type="button">Reset layout</button>
+                <button id="doneDashboardEditing" class="button primary small" type="button">Done</button>
+              </div>
+            </div>
+            <div id="dashboardHiddenTray" class="dashboard-hidden-tray hidden">
+              <span class="eyebrow">Hidden cards</span>
+              <div id="dashboardHiddenCards"></div>
+            </div>
+            <div class="dashboard-editor-row dashboard-editor-controls">
+              <label class="toggle-setting"><input id="dashboardEditTaskBank" type="checkbox"><span><strong>Task bank</strong>Show the task list beside the day timeline.</span></label>
+              <label class="toggle-setting"><input id="dashboardEditBackground" type="checkbox"><span><strong>Background photo</strong>A random image from your library on every new tab.</span></label>
+              <div id="dashboardEditSliders" class="dashboard-editor-sliders hidden">
+                <label class="overlay-field" for="dashboardEditOverlay"><span>Readability overlay</span><output id="dashboardEditOverlayValue">55%</output></label>
+                <input id="dashboardEditOverlay" type="range" min="0" max="90" step="1">
+                <label class="overlay-field" for="dashboardEditTransparency"><span>Card transparency</span><output id="dashboardEditTransparencyValue">30%</output></label>
+                <input id="dashboardEditTransparency" type="range" min="0" max="85" step="1">
+                <div class="button-row">
+                  <button id="dashboardEditNewPhoto" class="button secondary small" type="button">Another photo</button>
+                </div>
+                <p id="dashboardEditPhotoStatus" class="form-status"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <p id="dashboardEmptyState" class="dashboard-empty-state hidden">Every start-page card is hidden. Turn cards back on under <button class="text-button" data-go-view="settings" type="button">Settings &rsaquo; Start page</button>.</p>
 
         <div id="dashboardFull" class="dashboard-lane dashboard-full" data-lane="full">
@@ -489,7 +520,7 @@
           <section class="settings-section start-page-settings">
             <span class="eyebrow">Dashboard home</span>
             <h2>Start page</h2>
-            <p>Choose which cards the dashboard shows, which column they sit in, and how they are ordered.</p>
+            <p>Choose which cards the dashboard shows, which column they sit in, and how they are ordered. You can also arrange them by dragging on the <button class="text-button" data-go-view="today" type="button">start page itself</button>.</p>
             <ul id="dashboardWidgetList" class="widget-list"></ul>
             <div class="widget-list-footer">
               <label class="toggle-setting"><input id="dashboardShowTaskBank" type="checkbox"><span><strong>Task bank</strong>Show the drag-and-drop task list beside the day timeline.</span></label>

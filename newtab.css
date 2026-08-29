@@ -1213,3 +1213,60 @@ body.dashboard-has-background .focus-band { backdrop-filter: blur(18px); }
 
 .dashboard-empty-state { margin: 32px 0 0; padding: 20px; border: 1px dashed var(--line); color: var(--muted); }
 .dashboard-empty-state .text-button { font-size: inherit; }
+
+/* Start-page editing, driven from the dashboard itself */
+.dashboard-toolbar { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.dashboard-editor { width: 100%; padding: 16px; border: 1px solid var(--line-dark); background: var(--panel-bg); display: flex; flex-direction: column; gap: 14px; }
+.dashboard-editor-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.dashboard-editor-hint { margin: 0; color: var(--muted); font-size: 12px; max-width: 60ch; }
+.dashboard-editor-controls { align-items: flex-start; }
+.dashboard-editor-sliders { flex: 1 1 260px; min-width: 240px; display: flex; flex-direction: column; gap: 6px; }
+.dashboard-hidden-tray { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--line); }
+.dashboard-hidden-tray > div { display: flex; gap: 8px; flex-wrap: wrap; }
+
+body.dashboard-editing [data-widget] {
+  position: relative;
+  padding-top: 38px;
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+  cursor: grab;
+}
+body.dashboard-editing [data-widget]:active { cursor: grabbing; }
+/* The card behaves as one draggable object; its real controls stay inert. */
+body.dashboard-editing [data-widget] > *:not(.widget-edit-bar) { pointer-events: none; }
+body.dashboard-editing [data-widget].card-dragging { opacity: .4; }
+body.dashboard-editing [data-widget].drop-before { outline-style: solid; outline-width: 3px; }
+
+.widget-edit-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.widget-edit-title { display: flex; align-items: center; gap: 6px; }
+.widget-edit-lane { margin-left: auto; opacity: .7; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.widget-edit-bar button {
+  border: 1px solid var(--paper);
+  background: transparent;
+  color: var(--paper);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.widget-edit-bar button:hover { background: var(--paper); color: var(--ink); }
+
+body.dashboard-editing .dashboard-lane.lane-empty {
+  min-height: 120px;
+  border: 1px dashed var(--line-dark);
+}
+body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
