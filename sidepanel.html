@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Desk Capture</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="panel-header">
+    <div class="panel-brand"><span aria-hidden="true"></span><strong>Focus Desk</strong></div>
+    <button id="openDashboard" class="text-button" type="button">Dashboard</button>
+  </header>
+
+  <main>
+    <section class="page-context" aria-labelledby="pageTitle">
+      <span class="eyebrow">Current page</span>
+      <div class="page-identity">
+        <img id="pageFavicon" alt="" width="42" height="42">
+        <div>
+          <h1 id="pageTitle">Loading page</h1>
+          <p id="pageDomain">Current browser tab</p>
+        </div>
+      </div>
+    </section>
+
+    <form id="captureForm" class="capture-form">
+      <div class="capture-heading">
+        <div><span class="eyebrow">Quick capture</span><h2>Keep the thought</h2></div>
+        <select id="captureType" aria-label="Capture type">
+          <option value="link">Link</option>
+          <option value="task">Task</option>
+          <option value="note">Note</option>
+          <option value="idea">Idea</option>
+        </select>
+      </div>
+
+      <label>Title<input id="captureTitle" type="text" maxlength="500" required></label>
+      <label>Context<textarea id="captureBody" rows="5" maxlength="12000" placeholder="Why is this useful? What happens next?"></textarea></label>
+
+      <div class="destination-switch" role="group" aria-label="Capture destination">
+        <button class="active" data-destination="inbox" type="button">Inbox</button>
+        <button data-destination="project" type="button">Project</button>
+      </div>
+      <div id="projectDestination" class="project-destination hidden">
+        <label>Workspace<select id="captureWorkspace"></select></label>
+        <label>Project<select id="captureProject"></select></label>
+      </div>
+      <button id="saveCapture" class="primary-button" type="submit">Save to Inbox</button>
+      <p id="captureStatus" class="status" role="status"></p>
+    </form>
+
+    <section class="recent-section">
+      <div class="section-heading">
+        <div><span class="eyebrow">Waiting</span><h2>Recent Inbox</h2></div>
+        <strong id="openInboxCount">0</strong>
+      </div>
+      <div id="recentInbox" class="recent-list"></div>
+    </section>
+  </main>
+
+  <footer class="focus-strip">
+    <div>
+      <span class="eyebrow">Focus session</span>
+      <strong id="focusTimer">25:00</strong>
+    </div>
+    <div class="focus-duration" role="group" aria-label="Focus duration">
+      <button class="active" data-focus-minutes="25" type="button">25</button>
+      <button data-focus-minutes="90" type="button">90</button>
+    </div>
+    <button id="focusToggle" class="focus-button" type="button">Start</button>
+  </footer>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

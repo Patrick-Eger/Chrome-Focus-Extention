@@ -1,201 +1,208 @@
-// blocked.js - Enhanced with timer display and todo list
+let state = null;
+let blockedUrl = '';
+let blockedDomain = '';
+let mathAnswer = null;
+let flashcardQueue = [];
+let flashcardIndex = 0;
+let reviewedCards = 0;
 
-const motivationalQuotes = [
-  "Focus is the gateway to thinking, perceiving, remembering, learning, and reasoning.",
-  "The successful warrior is the average person, with laser-like focus.",
-  "Concentrate all your thoughts upon the work at hand. The sun's rays do not burn until brought to a focus.",
-  "Your ability to discipline yourself to set clear goals, and then work toward them every day, will do more to guarantee your success than any other single factor.",
-  "The key to success is to focus our conscious mind on things we desire, not things we fear.",
-  "Starve your distractions, feed your focus.",
-  "Where focus goes, energy flows.",
-  "One way to boost our willpower and focus is to manage our distractions instead of letting them manage us."
-];
+const $ = (selector) => document.querySelector(selector);
 
-// Get the blocked URL
-const urlParams = new URLSearchParams(window.location.search);
-const blockedUrl = urlParams.get('url');
-if (blockedUrl) {
+document.addEventListener('DOMContentLoaded', async () => {
+  blockedUrl = parseBlockedUrl();
   try {
-    const url = new URL(blockedUrl);
-    document.getElementById('blocked-url').textContent = url.hostname;
-  } catch (e) {
-    document.getElementById('blocked-url').textContent = 'Blocked site';
+    blockedDomain = blockedUrl ? new URL(blockedUrl).hostname.replace(/^www\./, '') : '';
+  } catch (_) {
+    blockedDomain = '';
   }
-}
+  $('#blockedDomain').textContent = blockedDomain || 'This site is blocked.';
+  await loadState();
+  setInterval(updateTimer, 1000);
+});
 
-// Display random motivational quote
-const randomQuote = motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
-document.getElementById('motivation-quote').textContent = randomQuote;
-
-// Load and display timer + todos
-let timerInterval;
-let timerStartTime = null;
-let timerDuration = null;
-
-function loadState() {
-  chrome.runtime.sendMessage({ type: 'getState' }, (state) => {
-    if (!state) return;
-    
-    updateTimer(state);
-    updateTodos(state);
+function send(type, payload = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type, ...payload }, (response) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      if (!response || !response.ok) return reject(new Error(response && response.error || 'The extension did not respond.'));
+      resolve(response);
+    });
   });
 }
 
-function updateTimer(state) {
-  const timerDisplay = document.getElementById('timer-display');
-  const timerLabel = document.getElementById('timer-label');
-  const progressFill = document.getElementById('progress-fill');
-  
-  if (!state.enabled || !state.timerEnd) {
-    timerDisplay.textContent = 'Timer Off';
-    timerLabel.textContent = 'No active timer';
-    progressFill.style.width = '0%';
-    if (timerInterval) {
-      clearInterval(timerInterval);
-      timerInterval = null;
-    }
-    return;
-  }
-  
-  // Calculate timer info on first load
-  if (!timerStartTime) {
-    const now = Date.now();
-    const remaining = state.timerEnd - now;
-    
-    // Estimate start time based on Pomodoro settings
-    if (state.pomodoroMode) {
-      const expectedDuration = state.currentCycle === 0 
-        ? state.pomodoroWork * 60000 
-        : (state.pomodoroCount % 4 === 0 ? state.pomodoroLongBreak : state.pomodoroBreak) * 60000;
-      timerStartTime = state.timerEnd - expectedDuration;
-      timerDuration = expectedDuration;
-    } else {
-      // For regular timer, we don't know the start time, so just use remaining time
-      timerStartTime = now;
-      timerDuration = remaining;
-    }
-  }
-  
-  // Clear existing interval
-  if (timerInterval) clearInterval(timerInterval);
-  
-  // Update timer display
-  updateTimerDisplay(state);
-  timerInterval = setInterval(() => updateTimerDisplay(state), 100);
-  
-  // Update label
-  if (state.pomodoroMode) {
-    if (state.currentCycle === 0) {
-      timerLabel.textContent = `Work Session ${state.pomodoroCount + 1}`;
-    } else {
-      const isLongBreak = state.pomodoroCount % 4 === 0;
-      timerLabel.textContent = isLongBreak ? 'Long Break Time' : 'Short Break Time';
-    }
-  } else {
-    timerLabel.textContent = 'Focus Session Active';
+async function loadState() {
+  try {
+    const response = await send('getState');
+    state = response.state;
+    document.documentElement.dataset.palette = ['signal', 'cobalt', 'forest', 'orange'].includes(state.settings.palette)
+      ? state.settings.palette
+      : 'signal';
+    document.documentElement.dataset.theme = ['system', 'light', 'dark'].includes(state.settings.colorMode)
+      ? state.settings.colorMode
+      : 'system';
+    const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId) || state.workspaces[0];
+    $('#blockedContext').textContent = `${workspace.name} is active. Complete the focus gate to open this site temporarily.`;
+    $('#accessNote').textContent = state.settings.gateType === 'hard'
+      ? 'Temporary access is disabled.'
+      : `Access lasts ${state.settings.unlockMinutes} minutes.`;
+    updateTimer();
+    renderGate();
+  } catch (error) {
+    showError(error.message);
   }
 }
 
-function updateTimerDisplay(state) {
-  const timerDisplay = document.getElementById('timer-display');
-  const progressFill = document.getElementById('progress-fill');
-  
-  const now = Date.now();
-  const remaining = Math.max(0, state.timerEnd - now);
-  
-  if (remaining === 0) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-    setTimeout(loadState, 500);
+function updateTimer() {
+  if (!state || !state.focus.active || !state.focus.endAt) {
+    $('#focusRemaining').textContent = 'Session ended';
     return;
   }
-  
-  // Display time
-  const totalSeconds = Math.ceil(remaining / 1000);
+  const totalSeconds = Math.max(0, Math.ceil((state.focus.endAt - Date.now()) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  
-  // Update progress bar
-  if (timerDuration > 0) {
-    const elapsed = now - timerStartTime;
-    const progress = Math.min(100, (elapsed / timerDuration) * 100);
-    progressFill.style.width = `${progress}%`;
-  }
+  $('#focusRemaining').textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  if (totalSeconds === 0 && blockedUrl) window.location.replace(blockedUrl);
 }
 
-function updateTodos(state) {
-  const todoList = document.getElementById('todo-list');
-  const todos = state.todos?.[state.activeList] || [];
-  
-  if (todos.length === 0) {
-    todoList.innerHTML = '<div class="empty-todos">No tasks yet. Add some from your new tab!</div>';
-    return;
-  }
-  
-  todoList.innerHTML = todos.map((todo, i) => `
-    <div class="todo-item ${todo.done ? 'done' : ''}">
-      <input type="checkbox" class="todo-checkbox" ${todo.done ? 'checked' : ''} data-index="${i}" />
-      <span class="todo-text">${escapeHtml(todo.text)}</span>
-    </div>
-  `).join('');
-  
-  // Attach checkbox listeners
-  todoList.querySelectorAll('.todo-checkbox').forEach(cb => {
-    cb.onchange = () => {
-      const idx = parseInt(cb.dataset.index);
-      chrome.runtime.sendMessage({ type: 'updateTodo', action: 'toggle', index: idx }, () => {
-        loadState();
-      });
-    };
+function renderGate() {
+  const type = state.settings.gateType;
+  if (type === 'math') return renderMathGate();
+  if (type === 'flashcards') return renderFlashcardGate();
+  if (type === 'intent') return renderIntentGate();
+  if (type === 'task') return renderTaskGate();
+  renderHardGate();
+}
+
+function renderHardGate() {
+  $('#gateContent').innerHTML = `
+    <h2>Stay with the session</h2>
+    <p>This workspace uses a hard block. The site will remain unavailable until focus mode ends or you stop it from the dashboard.</p>`;
+}
+
+function renderMathGate() {
+  const left = randomBetween(12, 39);
+  const right = randomBetween(7, 28);
+  const multiplier = randomBetween(2, 6);
+  mathAnswer = left + right * multiplier;
+  $('#gateContent').innerHTML = `
+    <h2>Solve one problem</h2>
+    <p>Pause, solve the problem, then decide whether this site is still needed.</p>
+    <form id="mathForm" class="gate-form">
+      <input id="mathInput" type="number" inputmode="numeric" placeholder="${left} + ${right} × ${multiplier} =" aria-label="Answer" required autofocus>
+      <button class="button primary" type="submit">Check and open</button>
+    </form>`;
+  $('#mathForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (Number($('#mathInput').value) !== mathAnswer) {
+      showError('That answer is not correct. Take another look.');
+      return;
+    }
+    await unlock();
   });
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function renderIntentGate() {
+  $('#gateContent').innerHTML = `
+    <h2>Name the reason</h2>
+    <p>Write a concrete reason for opening ${escapeHtml(blockedDomain)} during this session.</p>
+    <form id="intentForm" class="gate-form vertical">
+      <textarea id="intentInput" minlength="12" maxlength="240" placeholder="I need this site to…" required></textarea>
+      <button class="button primary" type="submit">Open temporarily</button>
+    </form>`;
+  $('#intentForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if ($('#intentInput').value.trim().length < 12) return showError('Make the intention a little more specific.');
+    await unlock();
+  });
 }
 
-// Add to whitelist button
-document.getElementById('add-whitelist').onclick = () => {
-  if (!blockedUrl) return;
-  
+function renderFlashcardGate() {
+  if (state.flashcards.length < 3) {
+    $('#gateContent').innerHTML = `
+      <h2>Three flashcards required</h2>
+      <p>You have ${state.flashcards.length} saved. Create at least three flashcards from your notes before using this gate.</p>`;
+    return;
+  }
+  flashcardQueue = shuffle([...state.flashcards]).slice(0, 3);
+  flashcardIndex = 0;
+  reviewedCards = 0;
+  showFlashcard(false);
+}
+
+function showFlashcard(revealed) {
+  const card = flashcardQueue[flashcardIndex];
+  $('#gateContent').innerHTML = `
+    <h2>Review three flashcards</h2>
+    <p class="flashcard-progress">Card ${flashcardIndex + 1} of 3</p>
+    <div class="flashcard">
+      <p class="question">${escapeHtml(card.question)}</p>
+      ${revealed ? `<p class="answer">${escapeHtml(card.answer)}</p><button id="nextCard" class="button primary">I reviewed this</button>` : '<button id="revealCard" class="button secondary">Reveal answer</button>'}
+    </div>`;
+  if (!revealed) $('#revealCard').addEventListener('click', () => showFlashcard(true));
+  else $('#nextCard').addEventListener('click', async () => {
+    reviewedCards += 1;
+    if (reviewedCards >= 3) return unlock();
+    flashcardIndex += 1;
+    showFlashcard(false);
+  });
+}
+
+function renderTaskGate() {
+  const openTasks = state.tasks.filter((task) => !task.completed).slice(0, 8);
+  if (!openTasks.length) {
+    $('#gateContent').innerHTML = '<h2>Complete a task</h2><p>There are no open tasks. Add one from the dashboard or choose a different focus gate.</p>';
+    return;
+  }
+  $('#gateContent').innerHTML = `
+    <h2>Complete one task</h2>
+    <p>Choose a real task to finish before opening this site.</p>
+    <form id="taskGateForm">
+      <div class="task-options">${openTasks.map((task) => `<label class="task-option"><input type="radio" name="gateTask" value="${task.id}"><span>${escapeHtml(task.title)}</span></label>`).join('')}</div>
+      <button class="button primary" type="submit">Mark complete and open</button>
+    </form>`;
+  $('#taskGateForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const selected = $('input[name="gateTask"]:checked');
+    if (!selected) return showError('Choose the task you completed.');
+    const tasks = state.tasks.map((task) => task.id === selected.value ? { ...task, completed: true } : task);
+    await chrome.storage.local.set({ tasks });
+    await unlock();
+  });
+}
+
+async function unlock() {
+  if (!blockedDomain || !blockedUrl) return showError('The original site address is missing.');
   try {
-    const url = new URL(blockedUrl);
-    const domain = url.hostname;
-    
-    chrome.storage.sync.get(['lists', 'activeList'], (data) => {
-      const lists = data.lists || {};
-      const activeList = data.activeList || 'Default';
-      
-      if (!lists[activeList]) {
-        lists[activeList] = [];
-      }
-      
-      if (!lists[activeList].includes(domain)) {
-        lists[activeList].push(domain);
-        chrome.storage.sync.set({ lists }, () => {
-          alert(`${domain} has been added to your whitelist!`);
-          window.location.href = blockedUrl;
-        });
-      } else {
-        alert(`${domain} is already whitelisted!`);
-      }
-    });
-  } catch (e) {
-    alert('Could not add this URL to whitelist');
+    showError('');
+    await send('grantTemporaryAccess', { domain: blockedDomain, minutes: state.settings.unlockMinutes });
+    window.location.replace(blockedUrl);
+  } catch (error) {
+    showError(error.message);
   }
-};
+}
 
-// Initial load
-loadState();
+function parseBlockedUrl() {
+  const marker = '?url=';
+  const index = window.location.href.indexOf(marker);
+  return index === -1 ? '' : window.location.href.slice(index + marker.length);
+}
 
-// Listen for state updates
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'stateUpdate') {
-    timerStartTime = null; // Reset timer calculation
-    timerDuration = null;
-    loadState();
+function showError(message) {
+  $('#gateError').textContent = message;
+}
+
+function randomBetween(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function shuffle(items) {
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [items[index], items[target]] = [items[target], items[index]];
   }
-});
+  return items;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+}

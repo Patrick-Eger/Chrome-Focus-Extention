@@ -1,31 +1,58 @@
 {
   "manifest_version": 3,
-  "name": "Whitelist Website Blocker",
-  "version": "1.4",
-  "description": "Blocks all websites except those on your whitelist. Supports multiple lists, timers, and custom new tab startpage.",
+  "name": "Focus Desk",
+  "version": "5.2.0",
+  "minimum_chrome_version": "116",
+  "description": "Plan projects and workdays, manage workspaces, capture notes, and protect focus from every new tab.",
   "permissions": [
-    "declarativeNetRequestWithHostAccess",
-    "storage",
-    "tabs",
     "alarms",
-    "activeTab"
+    "contextMenus",
+    "declarativeNetRequestWithHostAccess",
+    "favicon",
+    "identity",
+    "identity.email",
+    "notifications",
+    "sidePanel",
+    "storage",
+    "tabGroups",
+    "tabs"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://www.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Manage Whitelists"
+    "default_title": "Focus Desk"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "open-quick-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Open Focus Desk quick capture"
+    }
   },
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
+  "oauth2": {
+    "client_id": "000000000000-placeholder.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events"
+    ]
+  },
   "web_accessible_resources": [
     {
-      "resources": ["blocked.html"],
+      "resources": ["blocked.html", "blocked.css"],
       "matches": ["<all_urls>"]
     }
   ]

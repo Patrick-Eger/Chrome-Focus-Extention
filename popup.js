@@ -1,160 +1,182 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const siteInput = document.getElementById('siteInput');
-  const addButton = document.getElementById('addButton');
-  const addCurrent = document.getElementById('addCurrent');
-  const whitelistList = document.getElementById('whitelistList');
-  const enableToggle = document.getElementById('enableToggle');
-  const timerInput = document.getElementById('timerInput');
-  const activeListSelect = document.getElementById('activeListSelect');
-  const newListName = document.getElementById('newListName');
-  const createList = document.getElementById('createList');
-  const renameList = document.getElementById('renameList');
-  const deleteList = document.getElementById('deleteList');
+let state = null;
+let selectedMinutes = 25;
 
-  let lists = { "Default": [] };
-  let activeList = "Default";
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
-  // Load initial data
-  function loadData() {
-    chrome.storage.sync.get(['lists', 'activeList', 'enabled', 'timerEnd'], (data) => {
-      lists = data.lists || { "Default": [] };
-      activeList = data.activeList || "Default";
-      enableToggle.checked = data.enabled !== false;
-
-      // Populate list selector
-      activeListSelect.innerHTML = '';
-      Object.keys(lists).forEach(name => {
-        const option = document.createElement('option');
-        option.value = name;
-        option.textContent = name;
-        if (name === activeList) option.selected = true;
-        activeListSelect.appendChild(option);
-      });
-
-      loadWhitelist();
-    });
-  }
-
-  // Toggle enable (and set timer)
-  enableToggle.onchange = () => {
-    const minutes = parseInt(timerInput.value) || 0;
-    chrome.storage.sync.set({ enabled: enableToggle.checked });
-    if (enableToggle.checked && minutes > 0) {
-      const endTime = Date.now() + minutes * 60000;
-      chrome.storage.sync.set({ timerEnd: endTime });
-      // Alarm set in background
-    } else {
-      chrome.storage.sync.set({ timerEnd: null });
-      chrome.alarms.clear('timerExpire');
-    }
-  };
-
-  // Change active list
-  activeListSelect.onchange = () => {
-    activeList = activeListSelect.value;
-    chrome.storage.sync.set({ activeList });
-    loadWhitelist();
-  };
-
-  // Create new list
-  createList.onclick = () => {
-    const name = newListName.value.trim();
-    if (name && !lists[name]) {
-      lists[name] = [];
-      chrome.storage.sync.set({ lists });
-      newListName.value = '';
-      loadData();
-    }
-  };
-
-  // Rename list
-  renameList.onclick = () => {
-    const newName = newListName.value.trim();
-    if (newName && newName !== activeList && !lists[newName]) {
-      lists[newName] = lists[activeList];
-      delete lists[activeList];
-      activeList = newName;
-      chrome.storage.sync.set({ lists, activeList });
-      newListName.value = '';
-      loadData();
-    }
-  };
-
-  // Delete list
-  deleteList.onclick = () => {
-    if (Object.keys(lists).length > 1 && confirm(`Delete "${activeList}"?`)) {
-      delete lists[activeList];
-      activeList = Object.keys(lists)[0];
-      chrome.storage.sync.set({ lists, activeList });
-      loadData();
-    }
-  };
-
-  // Load and display current whitelist
-  function loadWhitelist() {
-    const whitelist = lists[activeList] || [];
-    whitelistList.innerHTML = '';
-    whitelist.forEach((site) => {
-      const li = document.createElement('li');
-      li.textContent = site;
-      const remove = document.createElement('span');
-      remove.textContent = ' [Remove]';
-      remove.className = 'remove';
-      remove.onclick = () => removeSite(site);
-      li.appendChild(remove);
-      whitelistList.appendChild(li);
-    });
-  }
-
-  // Add manually
-  addButton.onclick = () => {
-    let site = siteInput.value.trim().toLowerCase();
-    if (site) {
-      site = site.replace(/^www\./, '');
-      addToWhitelist(site);
-      siteInput.value = '';
-    }
-  };
-
-  // Add current site's domain
-  addCurrent.onclick = () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      let tabUrl = tabs[0].url;
-      if (tabUrl.startsWith(chrome.runtime.getURL(''))) {
-        const params = new URLSearchParams(new URL(tabUrl).search);
-        const original = params.get('url');
-        if (original) tabUrl = original;
-      }
-      try {
-        const url = new URL(tabUrl);
-        let domain = url.hostname.toLowerCase();
-        domain = domain.replace(/^www\./, '');
-        addToWhitelist(domain);
-      } catch (e) {
-        alert('Cannot add this site (invalid URL).');
-      }
-    });
-  };
-
-  // Helper to add domain if not already in current list
-  function addToWhitelist(domain) {
-    let whitelist = lists[activeList] || [];
-    if (!whitelist.includes(domain)) {
-      whitelist.push(domain);
-      lists[activeList] = whitelist;
-      chrome.storage.sync.set({ lists });
-      loadWhitelist();
-    }
-  }
-
-  // Remove site
-  function removeSite(site) {
-    let whitelist = lists[activeList] || [];
-    whitelist = whitelist.filter(s => s !== site);
-    lists[activeList] = whitelist;
-    chrome.storage.sync.set({ lists });
-    loadWhitelist();
-  }
-
-  loadData();
+document.addEventListener('DOMContentLoaded', async () => {
+  $$('.segmented button').forEach((button) => button.addEventListener('click', () => {
+    selectedMinutes = Number(button.dataset.minutes);
+    render();
+  }));
+  $('#popupWorkspace').addEventListener('change', async (event) => {
+    await chrome.storage.local.set({ activeWorkspaceId: event.target.value });
+    state.activeWorkspaceId = event.target.value;
+    render();
+  });
+  $('#popupFocusToggle').addEventListener('click', toggleFocus);
+  $('#allowCurrentSite').addEventListener('click', allowCurrentSite);
+  $('#favoriteCurrentSite').addEventListener('click', favoriteCurrentSite);
+  $('#captureCurrentSite').addEventListener('click', captureCurrentSite);
+  $('#openSidePanel').addEventListener('click', openSidePanel);
+  $('#openDashboard').addEventListener('click', async () => {
+    await send('openDashboard');
+    window.close();
+  });
+  await loadState();
+  setInterval(updateTimer, 1000);
 });
+
+function send(type, payload = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type, ...payload }, (response) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      if (!response || !response.ok) return reject(new Error(response && response.error || 'The extension did not respond.'));
+      resolve(response);
+    });
+  });
+}
+
+async function loadState() {
+  try {
+    const response = await send('getState');
+    state = response.state;
+    if (state.focus.active) selectedMinutes = state.focus.durationMinutes;
+    render();
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+function render() {
+  if (!state) return;
+  document.documentElement.dataset.palette = ['signal', 'cobalt', 'forest', 'orange'].includes(state.settings.palette)
+    ? state.settings.palette
+    : 'signal';
+  document.documentElement.dataset.theme = ['system', 'light', 'dark'].includes(state.settings.colorMode)
+    ? state.settings.colorMode
+    : 'system';
+  const select = $('#popupWorkspace');
+  select.innerHTML = state.workspaces.map((workspace) => `<option value="${workspace.id}">${escapeHtml(workspace.name)}</option>`).join('');
+  select.value = state.activeWorkspaceId;
+  select.disabled = state.focus.active;
+  $$('.segmented button').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.minutes) === selectedMinutes);
+    button.disabled = state.focus.active;
+  });
+  $('#popupFocusToggle').textContent = state.focus.active ? 'End session' : 'Start focus';
+  $('#popupFocusToggle').classList.toggle('running', state.focus.active);
+  $('#popupStatus').textContent = state.focus.active ? 'Focused' : 'Ready';
+  updateTimer();
+}
+
+function updateTimer() {
+  if (!state) return;
+  const milliseconds = state.focus.active
+    ? Math.max(0, state.focus.endAt - Date.now())
+    : selectedMinutes * 60000;
+  const totalSeconds = Math.ceil(milliseconds / 1000);
+  $('#popupTimer').textContent = `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
+  if (state.focus.active && totalSeconds === 0) loadState();
+}
+
+async function toggleFocus() {
+  try {
+    if (state.focus.active) await send('stopFocus');
+    else await send('startFocus', { minutes: selectedMinutes, mode: selectedMinutes === 90 ? 'deep' : 'pomodoro' });
+    await loadState();
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function allowCurrentSite() {
+  try {
+    const page = await getCurrentPage();
+    const workspaces = state.workspaces.map((workspace) => workspace.id === state.activeWorkspaceId
+      ? { ...workspace, domains: Array.from(new Set([...workspace.domains, page.domain])), updatedAt: Date.now() }
+      : workspace);
+    await chrome.storage.local.set({ workspaces });
+    state.workspaces = workspaces;
+    showMessage(`${page.domain} added to this workspace.`);
+  } catch (_) {
+    showMessage('This page does not have a website domain.');
+  }
+}
+
+async function favoriteCurrentSite() {
+  try {
+    const page = await getCurrentPage();
+    const active = state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId);
+    if ((active.favorites || []).some((favorite) => favorite.url === page.url)) {
+      showMessage(`${page.domain} is already a favorite.`);
+      return;
+    }
+    const favorite = {
+      id: `favorite-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
+      title: page.title,
+      url: page.url,
+      createdAt: Date.now()
+    };
+    const workspaces = state.workspaces.map((workspace) => workspace.id === state.activeWorkspaceId
+      ? { ...workspace, favorites: [...(workspace.favorites || []), favorite], updatedAt: Date.now() }
+      : workspace);
+    await chrome.storage.local.set({ workspaces });
+    state.workspaces = workspaces;
+    showMessage(`${page.domain} added to favorites.`);
+  } catch (_) {
+    showMessage('This page cannot be added as a favorite.');
+  }
+}
+
+async function captureCurrentSite() {
+  try {
+    const page = await getCurrentPage();
+    await send('captureInboxItem', {
+      item: {
+        type: 'link',
+        title: page.title,
+        url: page.url,
+        workspaceId: state.activeWorkspaceId
+      },
+      source: { title: page.title, url: page.url }
+    });
+    showMessage(`${page.domain} saved to Inbox.`);
+  } catch (_) {
+    showMessage('This page cannot be saved to Inbox.');
+  }
+}
+
+async function openSidePanel() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) throw new Error('No active tab.');
+    await chrome.sidePanel.open({ windowId: tab.windowId });
+    window.close();
+  } catch (error) {
+    showMessage(error.message);
+  }
+}
+
+async function getCurrentPage() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let originalUrl = tab && tab.url || '';
+  let title = tab && tab.title || '';
+  const marker = '?url=';
+  if (originalUrl.startsWith(chrome.runtime.getURL('blocked.html')) && originalUrl.includes(marker)) {
+    originalUrl = originalUrl.slice(originalUrl.indexOf(marker) + marker.length);
+    title = '';
+  }
+  const url = new URL(originalUrl);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported page.');
+  const domain = url.hostname.toLowerCase().replace(/^www\./, '');
+  return { url: url.href, domain, title: title.trim() || domain };
+}
+
+function showMessage(message) {
+  $('#popupMessage').textContent = message;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+}

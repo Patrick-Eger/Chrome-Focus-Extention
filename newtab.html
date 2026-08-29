@@ -1,91 +1,731 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Focus Startpage</title>
-    <link rel="stylesheet" href="newtab.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Desk</title>
+  <link rel="stylesheet" href="vendor/easymde.min.css">
+  <link rel="stylesheet" href="newtab.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🎯 Focus Mode</h1>
-            <div id="headerClock" class="header-clock">--:--</div>
-        </header>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Focus Desk</span>
+      </div>
 
-        <nav class="tabs">
-            <button id="clockTab" class="tab">⏰ Clock</button>
-            <button id="focusTab" class="tab active">🎯 Focus</button>
-            <button id="todoTab" class="tab">📝 To-Do</button>
-            <button id="settingsTab" class="tab">⚙️ Settings</button>
-        </nav>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button class="nav-button active" data-view="today">Today</button>
+        <button class="nav-button" data-view="inbox">Inbox <span id="inboxCount" class="nav-count">0</span></button>
+        <button class="nav-button" data-view="projects">Projects <span id="projectCount" class="nav-count">0</span></button>
+        <button class="nav-button" data-view="tasks">Tasks <span id="taskCount" class="nav-count">0</span></button>
+        <button class="nav-button" data-view="notes">Notes <span id="noteCount" class="nav-count">0</span></button>
+        <button class="nav-button" data-view="workspaces">Workspaces</button>
+        <button class="nav-button" data-view="calendar">Calendar</button>
+        <button class="nav-button" data-view="settings">Settings</button>
+      </nav>
 
-        <!-- Clock Display -->
-        <div id="clockDisplay" class="content hidden">
-            <div class="clock-section">
-                <div id="currentTime" class="time-display">00:00:00</div>
-                <div id="currentDate" class="date-display">Loading...</div>
+      <button id="openMomentMode" class="moment-entry" type="button">Moment screen</button>
+
+      <div class="sidebar-focus">
+        <span class="eyebrow">Focus status</span>
+        <strong id="sidebarFocusStatus">Not running</strong>
+        <span id="sidebarWorkspace">Focus workspace</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p id="todayLabel" class="eyebrow"></p>
+          <h1 id="viewTitle">Plan the day</h1>
+        </div>
+        <div class="topbar-meta">
+          <time id="headerClock">--:--</time>
+          <button id="quickNoteButton" class="button secondary">New note</button>
+        </div>
+      </header>
+
+      <section id="todayView" class="view active" data-title="Plan the day">
+        <div class="focus-band">
+          <div class="focus-copy">
+            <span class="eyebrow">Current session</span>
+            <button id="focusTimer" class="focus-timer" type="button" title="Change session length" aria-expanded="false" aria-controls="focusDurationEditor">25:00</button>
+            <p id="focusMessage">Choose a session length and protect your attention.</p>
+            <form id="focusDurationEditor" class="focus-duration-editor hidden">
+              <label for="focusDurationMinutes">Session length</label>
+              <span class="input-with-unit">
+                <input id="focusDurationMinutes" type="number" min="1" max="180" step="1" inputmode="numeric" required>
+                <span>minutes</span>
+              </span>
+              <div class="button-row">
+                <button id="cancelFocusDuration" class="button secondary small" type="button">Cancel</button>
+                <button class="button primary small" type="submit">Apply</button>
+              </div>
+            </form>
+          </div>
+          <div class="focus-controls">
+            <label for="focusWorkspace">Workspace</label>
+            <select id="focusWorkspace"></select>
+            <div class="segmented" aria-label="Focus duration">
+              <button class="segment active" data-minutes="25">25 min</button>
+              <button class="segment" data-minutes="90">90 min</button>
+              <button class="segment" data-minutes="50">50 min</button>
             </div>
-            <div class="quote-section">
-                <div id="quoteText" class="quote-text">"Loading quote..."</div>
-                <div id="quoteAuthor" class="quote-author">- Anonymous</div>
-            </div>
+            <button id="focusToggle" class="button primary">Start focus</button>
+          </div>
         </div>
 
-        <!-- Timer & Whitelist (Focus Tab) -->
-        <div class="timer-container">
-            <div id="timer" class="timer-section">
-                <!-- Timer will be rendered here -->
-            </div>
-        </div>
-
-        <div id="whitelistDisplay" class="whitelist-section">
-            <h3>Active Whitelist: <span id="activeListName">Default</span></h3>
-            <ul id="domainList"></ul>
-        </div>
-
-        <!-- To-Do List -->
-        <div id="todoDisplay" class="content hidden">
-            <h3>To-Do List for <span id="todoListName">Default</span></h3>
-            <div class="todo-input-container">
-                <input type="text" id="newTodoInput" placeholder="Add a new task..." />
-                <button id="addTodoButton" class="btn btn-primary">➕ Add</button>
-            </div>
-            <ul id="todo-list"></ul>
-        </div>
-
-        <!-- Settings -->
-        <div id="settingsPanel" class="content hidden">
-            <div class="settings-section">
-                <h3>Active List</h3>
-                <select id="list-select"></select>
-                <button id="new-list" class="btn">+ New List</button>
-                
-                <h3>Domains for Current List</h3>
-                <div class="domain-input">
-                    <input type="text" id="domain-input" placeholder="example.com" />
-                    <button id="add-domain" class="btn btn-primary">Add Domain</button>
+        <div class="dashboard-grid">
+          <section class="panel day-panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">Day plan</span>
+                <h2 id="plannerDateHeading">Today</h2>
+              </div>
+              <div class="day-plan-actions">
+                <span id="plannedMinutes" class="panel-stat">0 min</span>
+                <div class="date-stepper" aria-label="Planner date">
+                  <button id="plannerPreviousDay" type="button" aria-label="Previous day">‹</button>
+                  <button id="plannerToday" type="button">Today</button>
+                  <button id="plannerNextDay" type="button" aria-label="Next day">›</button>
                 </div>
-                <ul id="domain-list"></ul>
+                <button id="newWorkBlock" class="button secondary small" type="button">New block</button>
+                <button id="newReminder" class="button secondary small" type="button">New reminder</button>
+                <button id="autoPlanDay" class="button primary small" type="button">Plan my day</button>
+                <button id="toggleDayReview" class="button secondary small" type="button">Review</button>
+              </div>
+            </div>
+            <form id="planForm" class="inline-form plan-form">
+              <input id="planTime" type="time" required aria-label="Start time">
+              <input id="planTitle" type="text" maxlength="160" placeholder="Add a work block" required>
+              <input id="planDuration" type="number" min="5" max="480" step="5" value="60" aria-label="Duration in minutes">
+              <button class="button primary" type="submit">Add</button>
+            </form>
+            <div class="day-planner-layout">
+              <div id="dayRail" class="day-rail" aria-label="Today timeline"></div>
+              <aside class="planner-task-bank">
+                <div class="workspace-subheading">
+                  <div><span class="eyebrow">Task bank</span><h3>Ready to schedule</h3></div>
+                  <span id="plannerTaskCount">0</span>
+                </div>
+                <p class="planner-bank-hint">Drag onto the rail or use Schedule.</p>
+                <div id="plannerTaskBank"></div>
+              </aside>
+            </div>
+            <section id="dayReview" class="day-review hidden">
+              <div class="workspace-subheading">
+                <div><span class="eyebrow">End of day</span><h3>Close the loops</h3></div>
+                <button id="closeDayReview" class="text-button" type="button">Close</button>
+              </div>
+              <div id="dayReviewList"></div>
+            </section>
+          </section>
 
-                <h3>Timer Settings</h3>
-                <label class="toggle-label">
-                    <input type="checkbox" id="pomodoro-toggle" />
-                    <span>Enable Pomodoro Mode</span>
+          <div class="dashboard-side">
+            <section class="panel compact-panel">
+              <div class="panel-header">
+                <h2>Next tasks</h2>
+                <button class="text-button" data-go-view="tasks">View all</button>
+              </div>
+              <div id="todayTasks" class="compact-list"></div>
+            </section>
+
+            <section class="panel compact-panel">
+              <div class="panel-header">
+                <h2>Upcoming</h2>
+                <button class="text-button" data-go-view="calendar">Calendar</button>
+              </div>
+              <div id="calendarPreview" class="compact-list"></div>
+            </section>
+
+            <section class="panel compact-panel recall-panel">
+              <div class="panel-header">
+                <div><span class="eyebrow">Obsidian recall</span><h2 id="obsidianRecallTitle">Random note</h2></div>
+                <button id="nextObsidianRecall" class="text-button" type="button">Another note</button>
+              </div>
+              <div id="obsidianRecallContent" class="recall-content"></div>
+              <p id="obsidianRecallSource" class="recall-source"></p>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="inboxView" class="view" data-title="Inbox">
+        <div class="inbox-heading">
+          <div>
+            <span class="eyebrow">Universal capture</span>
+            <h2>Collect first. Decide here.</h2>
+          </div>
+          <p>Turn loose thoughts and pages into project work without interrupting the moment.</p>
+        </div>
+
+        <form id="inboxForm" class="inbox-capture-form">
+          <div class="inbox-capture-index">
+            <span class="eyebrow">New capture</span>
+            <select id="inboxCaptureType" aria-label="Capture type">
+              <option value="idea">Idea</option>
+              <option value="task">Task</option>
+              <option value="note">Note</option>
+              <option value="link">Link</option>
+            </select>
+          </div>
+          <div class="inbox-capture-fields">
+            <input id="inboxCaptureTitle" type="text" maxlength="500" placeholder="What did you notice?" required>
+            <textarea id="inboxCaptureBody" rows="3" maxlength="12000" placeholder="Context, next thought, or a short note"></textarea>
+            <input id="inboxCaptureUrl" type="url" maxlength="2048" placeholder="Optional URL">
+          </div>
+          <div class="inbox-capture-destination">
+            <label>Workspace<select id="inboxCaptureWorkspace"></select></label>
+            <label>Project<select id="inboxCaptureProject"><option value="">Unassigned</option></select></label>
+            <button class="button primary" type="submit">Add to inbox</button>
+          </div>
+        </form>
+
+        <div class="inbox-toolbar">
+          <div class="inbox-filter-group" role="group" aria-label="Inbox status">
+            <button class="active" data-inbox-status="open" type="button">Open</button>
+            <button data-inbox-status="processed" type="button">History</button>
+            <button data-inbox-status="all" type="button">All</button>
+          </div>
+          <select id="inboxTypeFilter" aria-label="Filter inbox by type">
+            <option value="all">All types</option>
+            <option value="idea">Ideas</option>
+            <option value="task">Tasks</option>
+            <option value="note">Notes</option>
+            <option value="link">Links</option>
+          </select>
+        </div>
+        <div id="inboxList" class="inbox-list"></div>
+      </section>
+
+      <section id="projectsView" class="view" data-title="Projects">
+        <div id="projectIndex">
+          <div class="section-heading projects-heading">
+            <div><span class="eyebrow">Personal project desk</span><h2>Projects</h2></div>
+            <div class="project-index-controls">
+              <select id="projectWorkspaceFilter" aria-label="Filter projects by workspace"></select>
+              <div class="project-toggle" role="group" aria-label="Project archive filter">
+                <button class="active" data-project-index-mode="active" type="button">Active</button>
+                <button data-project-index-mode="archived" type="button">Archived</button>
+              </div>
+            </div>
+          </div>
+          <form id="projectForm" class="project-create-form">
+            <input id="projectName" type="text" maxlength="120" placeholder="Project name" required>
+            <select id="projectWorkspace" aria-label="Workspace"></select>
+            <select id="projectPriority" aria-label="Priority">
+              <option value="medium">Medium priority</option>
+              <option value="high">High priority</option>
+              <option value="low">Low priority</option>
+            </select>
+            <input id="projectDueDate" type="date" aria-label="Due date">
+            <button class="button primary" type="submit">Create project</button>
+          </form>
+          <div id="projectGrid" class="project-grid"></div>
+        </div>
+
+        <div id="projectDetail" class="hidden">
+          <div class="project-detail-actions">
+            <button id="backToProjects" class="text-button" type="button">Back to projects</button>
+            <div class="button-row">
+              <button id="syncProjectObsidian" class="button secondary" type="button">Sync to Obsidian</button>
+              <button id="archiveProject" class="button secondary" type="button">Archive</button>
+              <button id="newProjectTask" class="button primary" type="button">New task</button>
+            </div>
+          </div>
+          <header id="projectLedger" class="project-ledger"></header>
+          <nav class="project-view-tabs" aria-label="Project views">
+            <button class="active" data-project-view-mode="overview" type="button">Overview</button>
+            <button data-project-view-mode="board" type="button">Board</button>
+            <button data-project-view-mode="list" type="button">List</button>
+          </nav>
+          <section id="projectOverview" class="project-subview"></section>
+          <section id="projectBoard" class="project-subview hidden"></section>
+          <section id="projectListView" class="project-subview hidden"></section>
+        </div>
+      </section>
+
+      <section id="tasksView" class="view" data-title="Tasks">
+        <div class="section-layout">
+          <section class="section-main">
+            <div class="section-heading">
+              <div><span class="eyebrow">Action list</span><h2>Tasks</h2></div>
+              <select id="taskFilter" aria-label="Filter tasks">
+                <option value="open">Open</option>
+                <option value="today">Planned today</option>
+                <option value="completed">Completed</option>
+                <option value="all">All tasks</option>
+              </select>
+            </div>
+            <form id="taskForm" class="task-form">
+              <input id="taskTitle" type="text" maxlength="500" placeholder="What needs to be done?" required>
+              <select id="taskWorkspace" aria-label="Workspace"></select>
+              <select id="taskProject" aria-label="Project"></select>
+              <input id="taskDate" type="date" aria-label="Planned date">
+              <button class="button primary" type="submit">Add task</button>
+            </form>
+            <div id="taskList" class="task-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="notesView" class="view" data-title="Notes">
+        <div class="notes-layout">
+          <aside class="notes-index">
+            <div class="panel-header">
+              <h2>Notes</h2>
+              <button id="newNoteButton" class="button secondary small">New</button>
+            </div>
+            <input id="noteSearch" type="search" placeholder="Search notes">
+            <div id="notesList" class="notes-list"></div>
+          </aside>
+          <section class="note-editor">
+            <div id="noteEmpty" class="empty-editor">
+              <p>Select a note or create a new one.</p>
+            </div>
+            <form id="noteForm" class="hidden">
+              <div class="note-actions">
+                <div class="note-context-selects">
+                  <select id="noteWorkspace" aria-label="Workspace"></select>
+                  <select id="noteProject" aria-label="Project"></select>
+                </div>
+                <div>
+                  <span id="noteSaveStatus" class="note-save-status" role="status">Autosave ready</span>
+                  <button id="deleteNoteButton" class="button danger" type="button">Delete</button>
+                  <button class="button primary" type="submit">Save now</button>
+                </div>
+              </div>
+              <input id="noteTitle" class="note-title" type="text" maxlength="160" placeholder="Note title">
+              <textarea id="noteBody" class="note-body" rows="18" maxlength="30000" placeholder="Write your note here"></textarea>
+              <div class="flashcard-maker">
+                <div>
+                  <span class="eyebrow">Focus gate material</span>
+                  <h3>Create a flashcard from this note</h3>
+                </div>
+                <input id="flashcardQuestion" type="text" maxlength="300" placeholder="Question">
+                <input id="flashcardAnswer" type="text" maxlength="500" placeholder="Answer">
+                <button id="addFlashcardButton" class="button secondary" type="button">Add flashcard</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <section id="workspacesView" class="view" data-title="Workspaces">
+        <div class="section-heading">
+          <div><span class="eyebrow">Tabs and context</span><h2>Workspaces</h2></div>
+        </div>
+        <form id="workspaceForm" class="workspace-form">
+          <input id="workspaceName" type="text" maxlength="60" placeholder="Workspace name" required>
+          <button class="button primary" type="submit">Create workspace</button>
+        </form>
+        <div id="workspaceGrid" class="workspace-grid"></div>
+        <section id="workspaceDetail" class="workspace-detail"></section>
+      </section>
+
+      <section id="calendarView" class="view" data-title="Calendar">
+        <div class="section-heading">
+          <div><span class="eyebrow">Google Calendar</span><h2 id="calendarDateHeading">Today</h2></div>
+          <div class="button-row">
+            <div class="date-stepper" aria-label="Calendar date">
+              <button id="calendarPreviousDay" type="button" aria-label="Previous day">‹</button>
+              <button id="calendarToday" type="button">Today</button>
+              <button id="calendarNextDay" type="button" aria-label="Next day">›</button>
+            </div>
+            <button id="calendarNewWorkBlock" class="button secondary">New block</button>
+            <button id="calendarNewReminder" class="button secondary">New reminder</button>
+            <button id="disconnectCalendar" class="button secondary hidden">Disconnect</button>
+            <button id="connectCalendar" class="button primary">Connect Google Calendar</button>
+          </div>
+        </div>
+        <div id="calendarNotice" class="notice hidden"></div>
+        <div id="calendarList" class="calendar-list"></div>
+      </section>
+
+      <section id="settingsView" class="view" data-title="Settings">
+        <div class="settings-grid">
+          <section class="settings-section account-settings">
+            <div class="account-settings-heading">
+              <div><span class="eyebrow">Connected services</span><h2>Google Calendar</h2></div>
+              <span id="settingsCalendarState" class="connection-state">Not connected</span>
+            </div>
+            <p>Connect a Google account to read events and add Focus Desk work blocks to your calendar.</p>
+            <div class="google-account-row">
+              <span class="google-account-mark" aria-hidden="true">G</span>
+              <div class="google-account-copy">
+                <strong id="settingsCalendarAccount">Google account</strong>
+                <span id="settingsCalendarDetail">No account connected.</span>
+              </div>
+              <div class="button-row">
+                <button id="settingsDisconnectCalendar" class="button secondary hidden" type="button">Disconnect</button>
+                <button id="settingsConnectCalendar" class="button primary" type="button">Connect Google</button>
+              </div>
+            </div>
+            <div class="calendar-preferences">
+              <label class="field-label">Default calendar
+                <select id="calendarDefaultId"><option value="primary">Primary calendar</option></select>
+              </label>
+              <label class="field-label">Timeline starts
+                <input id="calendarDayStart" type="time">
+              </label>
+              <label class="field-label">Timeline ends
+                <input id="calendarDayEnd" type="time">
+              </label>
+              <label class="field-label">Event reminder
+                <span class="input-with-unit"><input id="calendarReminderMinutes" type="number" min="0" max="120" step="5"><span>minutes</span></span>
+              </label>
+              <label class="toggle-setting"><input id="calendarReminderEnabled" type="checkbox"><span><strong>Remind before blocks</strong>Show a browser reminder and add it to synced Google events.</span></label>
+              <label class="toggle-setting"><input id="calendarAutoSyncBlocks" type="checkbox"><span><strong>Add blocks to Google</strong>Sync newly planned work blocks by default.</span></label>
+              <label class="toggle-setting"><input id="autoStartBlocks" type="checkbox"><span><strong>Start blocks automatically</strong>Turn on focus mode when a planned block begins.</span></label>
+              <label class="toggle-setting"><input id="autoOpenWorkspaceTabs" type="checkbox"><span><strong>Open workspace tabs</strong>Open saved tabs when a block starts automatically.</span></label>
+              <label class="field-label">Late-start grace
+                <span class="input-with-unit"><input id="autoStartGraceMinutes" type="number" min="0" max="60" step="5"><span>minutes</span></span>
+              </label>
+            </div>
+            <div id="settingsCalendarSetup" class="calendar-setup hidden">
+              <div><strong>OAuth setup required</strong><span>Create a Chrome Extension OAuth client using this extension ID, then add it to manifest.json.</span></div>
+              <code id="settingsExtensionId"></code>
+              <button id="copyExtensionId" class="button secondary small" type="button">Copy ID</button>
+            </div>
+            <p id="settingsCalendarMessage" class="form-status" role="status"></p>
+          </section>
+          <section class="settings-section account-settings obsidian-settings">
+            <div class="account-settings-heading">
+              <div><span class="eyebrow">Connected services</span><h2>Obsidian vault</h2></div>
+              <span id="settingsObsidianState" class="connection-state">Not connected</span>
+            </div>
+            <p>Select a local vault for random-note recall and one-way project export. Focus Desk only works with Markdown files.</p>
+            <div class="google-account-row">
+              <span class="google-account-mark" aria-hidden="true">O</span>
+              <div class="google-account-copy">
+                <strong id="settingsObsidianVault">Obsidian vault</strong>
+                <span id="settingsObsidianDetail">No vault connected.</span>
+              </div>
+              <div class="button-row">
+                <button id="disconnectObsidianVault" class="button secondary hidden" type="button">Disconnect</button>
+                <button id="connectObsidianVault" class="button primary" type="button">Choose vault</button>
+              </div>
+            </div>
+            <div class="obsidian-controls">
+              <label class="field-label" for="obsidianRecallTag">Recall tag
+                <span class="tag-input"><span>#</span><input id="obsidianRecallTag" type="text" maxlength="80" value="recall" placeholder="recall"></span>
+              </label>
+              <button id="refreshObsidianVault" class="button secondary" type="button">Scan vault</button>
+            </div>
+            <div class="obsidian-export-controls">
+              <label class="field-label" for="obsidianExportFolder">Export folder
+                <input id="obsidianExportFolder" type="text" maxlength="160" value="Focus Desk">
+              </label>
+              <label class="toggle-setting"><input id="obsidianIncludeArchivedProjects" type="checkbox"><span><strong>Include archived projects</strong>Export archived projects when syncing everything.</span></label>
+              <button id="syncAllObsidianProjects" class="button primary" type="button">Sync all projects</button>
+            </div>
+            <p id="obsidianSyncMessage" class="form-status" role="status"></p>
+            <p id="settingsObsidianMessage" class="form-status" role="status"></p>
+          </section>
+          <section class="settings-section appearance-settings">
+            <span class="eyebrow">Interface appearance</span>
+            <h2>Appearance</h2>
+            <p>Choose how Focus Desk follows your display and which signal color marks active controls.</p>
+            <h3>Display mode</h3>
+            <div class="display-mode-options" role="radiogroup" aria-label="Display mode">
+              <label><input type="radio" name="colorMode" value="system"><span>System</span></label>
+              <label><input type="radio" name="colorMode" value="light"><span>Light</span></label>
+              <label><input type="radio" name="colorMode" value="dark"><span>Dark</span></label>
+            </div>
+            <h3 class="appearance-subheading">Accent palette</h3>
+            <div class="palette-options">
+              <label><input type="radio" name="palette" value="signal"><span class="palette-swatch signal"><i></i><i></i><i></i></span><strong>Signal red</strong></label>
+              <label><input type="radio" name="palette" value="cobalt"><span class="palette-swatch cobalt"><i></i><i></i><i></i></span><strong>Klein blue</strong></label>
+              <label><input type="radio" name="palette" value="forest"><span class="palette-swatch forest"><i></i><i></i><i></i></span><strong>Field green</strong></label>
+              <label><input type="radio" name="palette" value="orange"><span class="palette-swatch orange"><i></i><i></i><i></i></span><strong>International orange</strong></label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <span class="eyebrow">Blocked-site behavior</span>
+            <h2>Focus gate</h2>
+            <p>Choose what must happen before a blocked site can open temporarily.</p>
+            <div class="gate-options">
+              <label><input type="radio" name="gateType" value="hard"> <span><strong>Hard block</strong>No temporary access.</span></label>
+              <label><input type="radio" name="gateType" value="math"> <span><strong>Math problem</strong>Solve one problem.</span></label>
+              <label><input type="radio" name="gateType" value="flashcards"> <span><strong>Flashcards</strong>Review three saved cards.</span></label>
+              <label><input type="radio" name="gateType" value="intent"> <span><strong>State an intention</strong>Write why the site is needed.</span></label>
+              <label><input type="radio" name="gateType" value="task"> <span><strong>Complete a task</strong>Finish one open task.</span></label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <span class="eyebrow">Session defaults</span>
+            <h2>Timing</h2>
+            <label class="field-label">Temporary access
+              <span class="input-with-unit"><input id="unlockMinutes" type="number" min="1" max="60"><span>minutes</span></span>
+            </label>
+            <label class="field-label">Default focus session
+              <span class="input-with-unit"><input id="defaultFocusMinutes" type="number" min="1" max="180"><span>minutes</span></span>
+            </label>
+            <div class="workday-setting-grid">
+              <label class="field-label">Workday starts
+                <input id="workdayStart" type="time">
+              </label>
+              <label class="field-label">Workday ends
+                <input id="workdayEnd" type="time">
+              </label>
+            </div>
+            <label class="field-label">Default task estimate
+              <span class="input-with-unit"><input id="defaultTaskEstimateMinutes" type="number" min="5" max="240" step="5"><span>minutes</span></span>
+            </label>
+          </section>
+          <section class="settings-section moment-settings">
+            <span class="eyebrow">New tab appearance</span>
+            <h2>Moment screen</h2>
+            <p>Choose the screen shown on new tabs and where its background photos come from.</p>
+            <div class="moment-settings-grid">
+              <div>
+                <h3>Default screen</h3>
+                <div class="choice-options">
+                  <label><input type="radio" name="newTabMode" value="dashboard"> <span><strong>Dashboard</strong>Planning, tasks, calendar, and notes.</span></label>
+                  <label><input type="radio" name="newTabMode" value="moment"> <span><strong>Moment</strong>Photo, quote, clock, and focus timer.</span></label>
+                </div>
+              </div>
+              <div>
+                <h3>Background source</h3>
+                <div class="choice-options">
+                  <label><input type="radio" name="momentImageSource" value="online"> <span><strong>Online random</strong>A different internet photo on each new tab.</span></label>
+                  <label><input type="radio" name="momentImageSource" value="custom"> <span><strong>My images</strong>A random photo from the files you select.</span></label>
+                </div>
+              </div>
+              <div class="moment-config-panel">
+                <h3>Layout and clock</h3>
+                <div class="moment-field-grid">
+                  <label class="field-label">Layout
+                    <select id="momentLayout"><option value="left">Left</option><option value="right">Right</option></select>
+                  </label>
+                  <label class="field-label">Clock size
+                    <select id="momentClockSize"><option value="large">Large</option><option value="compact">Compact</option></select>
+                  </label>
+                  <label class="field-label">Clock format
+                    <select id="momentClockFormat"><option value="24">24-hour</option><option value="12">12-hour</option></select>
+                  </label>
+                </div>
+                <label class="overlay-field" for="momentOverlay"><span>Photo overlay</span><output id="momentOverlayValue">42%</output></label>
+                <input id="momentOverlay" type="range" min="0" max="75" step="1">
+                <div class="visibility-options">
+                  <label><input id="momentShowQuote" type="checkbox"> Show quote</label>
+                  <label><input id="momentShowDate" type="checkbox"> Show date</label>
+                  <label><input id="momentShowFocus" type="checkbox"> Show focus controls</label>
+                  <label><input id="momentShowSource" type="checkbox"> Show photo source</label>
+                </div>
+              </div>
+              <div class="moment-config-panel">
+                <h3>Quote</h3>
+                <label class="field-label">Quote source
+                  <select id="momentQuoteMode"><option value="random">Random built-in quote</option><option value="custom">Custom quote</option></select>
                 </label>
-
-                <div id="pomodoro-config" class="pomodoro-config hidden">
-                    <div class="config-row">
-                        <label>Work: <input type="number" id="pomo-work" value="25" min="1" max="120" /> min</label>
-                        <label>Break: <input type="number" id="pomo-break" value="5" min="1" max="60" /> min</label>
-                        <label>Long Break: <input type="number" id="pomo-long" value="15" min="1" max="60" /> min</label>
-                    </div>
-                    <button id="save-pomo" class="btn btn-primary">Save Pomodoro Settings</button>
+                <div id="customQuoteFields" class="custom-quote-fields hidden">
+                  <textarea id="momentCustomQuote" rows="4" maxlength="360" placeholder="Your quote"></textarea>
+                  <input id="momentCustomAuthor" type="text" maxlength="120" placeholder="Author (optional)">
                 </div>
+              </div>
+              <div class="image-library">
+                <label class="field-label" for="momentImages">Add images</label>
+                <input id="momentImages" type="file" accept="image/*" multiple>
+                <div class="image-library-footer">
+                  <span id="momentImageStatus">No personal images saved.</span>
+                  <button id="removeMomentImages" class="text-button" type="button">Remove all</button>
+                </div>
+              </div>
             </div>
+          </section>
         </div>
-    </div>
+        <div class="settings-save-bar">
+          <p id="settingsStatus" class="form-status"></p>
+          <button id="saveSettings" class="button primary">Save settings</button>
+        </div>
+      </section>
+    </main>
+  </div>
 
-    <script src="newtab.js"></script>
+  <div id="workBlockBackdrop" class="work-block-backdrop hidden"></div>
+  <section id="workBlockModal" class="work-block-modal hidden" role="dialog" aria-modal="true" aria-labelledby="workBlockModalHeading">
+    <form id="workBlockForm">
+      <header class="work-block-modal-header">
+        <div><span class="eyebrow">Scheduled focus</span><h2 id="workBlockModalHeading">New work block</h2></div>
+        <button id="closeWorkBlockModal" class="drawer-close" type="button" aria-label="Close work block editor">Close</button>
+      </header>
+      <div class="work-block-modal-body">
+        <label class="drawer-field work-block-title">Title
+          <input id="workBlockTitle" type="text" maxlength="500" placeholder="What will you work on?" required>
+        </label>
+        <div class="work-block-time-grid">
+          <label class="drawer-field">Date<input id="workBlockDate" type="date" required></label>
+          <label class="drawer-field">Starts<input id="workBlockStart" type="time" required></label>
+          <label class="drawer-field">Ends<input id="workBlockEnd" type="time" required></label>
+        </div>
+        <div class="drawer-field-grid">
+          <label class="drawer-field">Workspace<select id="workBlockWorkspace"></select></label>
+          <label class="drawer-field">Project<select id="workBlockProject"><option value="">No project</option></select></label>
+          <label class="drawer-field">Task<select id="workBlockTask"><option value="">No task</option></select></label>
+          <label class="drawer-field">Calendar<select id="workBlockCalendar"><option value="">Do not sync</option></select></label>
+        </div>
+        <label class="drawer-field">Details
+          <textarea id="workBlockDescription" rows="4" maxlength="4000" placeholder="Outcome, context, or preparation notes"></textarea>
+        </label>
+        <div class="work-block-options">
+          <label class="toggle-setting"><input id="workBlockAutoStart" type="checkbox"><span><strong>Auto-start focus</strong>Start focus mode at the scheduled time.</span></label>
+          <label class="toggle-setting"><input id="workBlockSync" type="checkbox"><span><strong>Add to Google Calendar</strong>Create or update a linked calendar event.</span></label>
+          <label class="field-label">Reminder
+            <select id="workBlockReminder">
+              <option value="none">No reminder</option>
+              <option value="5">5 minutes before</option>
+              <option value="10">10 minutes before</option>
+              <option value="15">15 minutes before</option>
+              <option value="30">30 minutes before</option>
+              <option value="60">1 hour before</option>
+              <option value="120">2 hours before</option>
+            </select>
+          </label>
+        </div>
+        <p id="workBlockFormStatus" class="form-status" role="status"></p>
+      </div>
+      <footer class="work-block-modal-footer">
+        <button id="deleteWorkBlock" class="button danger hidden" type="button">Delete block</button>
+        <button class="button primary" type="submit">Save block</button>
+      </footer>
+    </form>
+  </section>
+
+  <div id="reminderBackdrop" class="work-block-backdrop hidden"></div>
+  <section id="reminderModal" class="work-block-modal reminder-modal hidden" role="dialog" aria-modal="true" aria-labelledby="reminderModalHeading">
+    <form id="reminderForm">
+      <header class="work-block-modal-header">
+        <div><span class="eyebrow">Personal reminder</span><h2 id="reminderModalHeading">New reminder</h2></div>
+        <button id="closeReminderModal" class="drawer-close" type="button" aria-label="Close reminder editor">Close</button>
+      </header>
+      <div class="work-block-modal-body">
+        <label class="drawer-field work-block-title">Title
+          <input id="reminderTitle" type="text" maxlength="500" placeholder="What should you remember?" required>
+        </label>
+        <div class="reminder-time-grid">
+          <label class="drawer-field">Date<input id="reminderDate" type="date" required></label>
+          <label class="drawer-field">Time<input id="reminderTime" type="time" required></label>
+        </div>
+        <label class="drawer-field reminder-notes-field">Notes
+          <textarea id="reminderNotes" rows="4" maxlength="4000" placeholder="Optional context"></textarea>
+        </label>
+        <p id="reminderFormStatus" class="form-status" role="status"></p>
+      </div>
+      <footer class="work-block-modal-footer">
+        <button id="deleteReminder" class="button danger hidden" type="button">Delete reminder</button>
+        <button class="button primary" type="submit">Save reminder</button>
+      </footer>
+    </form>
+  </section>
+
+  <div id="taskDrawerBackdrop" class="task-drawer-backdrop hidden"></div>
+  <aside id="taskDrawer" class="task-drawer hidden" aria-label="Task details" aria-hidden="true">
+    <form id="taskDrawerForm">
+      <header class="task-drawer-header">
+        <div><span class="eyebrow">Task record</span><h2 id="taskDrawerHeading">New task</h2></div>
+        <button id="closeTaskDrawer" class="drawer-close" type="button" aria-label="Close task details">Close</button>
+      </header>
+      <div class="task-drawer-body">
+        <label class="drawer-field drawer-title-field">Title
+          <input id="drawerTaskTitle" type="text" maxlength="500" required>
+        </label>
+        <div class="drawer-field-grid">
+          <label class="drawer-field">Project
+            <select id="drawerTaskProject"></select>
+          </label>
+          <label class="drawer-field">Group
+            <select id="drawerTaskGroup"></select>
+          </label>
+          <label class="drawer-field">Status
+            <select id="drawerTaskStatus">
+              <option value="backlog">Backlog</option>
+              <option value="planned">Planned</option>
+              <option value="in-progress">In progress</option>
+              <option value="waiting">Waiting</option>
+              <option value="done">Done</option>
+            </select>
+          </label>
+          <label class="drawer-field">Priority
+            <select id="drawerTaskPriority">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+          <label class="drawer-field">Due date
+            <input id="drawerTaskDueDate" type="date">
+          </label>
+          <label class="drawer-field">Plan for
+            <input id="drawerTaskPlannedDate" type="date">
+          </label>
+          <label class="drawer-field">Estimate
+            <span class="input-with-unit"><input id="drawerTaskEstimate" type="number" min="0" max="1440" step="5"><span>min</span></span>
+          </label>
+          <label class="drawer-field">Labels
+            <input id="drawerTaskLabels" type="text" maxlength="500" placeholder="writing, launch">
+          </label>
+        </div>
+        <label class="drawer-field">Details <span>Markdown supported</span>
+          <textarea id="drawerTaskDescription" rows="8" maxlength="12000" placeholder="Context, definition of done, useful links..."></textarea>
+        </label>
+        <section class="subtask-editor">
+          <div class="workspace-subheading"><h3>Subtasks</h3><span id="subtaskProgress">0 / 0</span></div>
+          <div id="drawerSubtaskList" class="drawer-subtask-list"></div>
+          <div class="subtask-add-row">
+            <input id="newSubtaskTitle" type="text" maxlength="300" placeholder="Add a subtask">
+            <button id="addSubtask" class="button secondary" type="button">Add</button>
+          </div>
+        </section>
+      </div>
+      <footer class="task-drawer-footer">
+        <button id="deleteDrawerTask" class="button danger hidden" type="button">Delete task</button>
+        <button class="button primary" type="submit">Save task</button>
+      </footer>
+    </form>
+  </aside>
+
+  <section id="momentScreen" class="moment-screen hidden" aria-label="Moment new tab screen">
+    <img id="momentImage" class="moment-image" alt="">
+    <div class="moment-scrim" aria-hidden="true"></div>
+    <header class="moment-header">
+      <div class="moment-brand"><span class="brand-mark" aria-hidden="true"></span>Focus Desk</div>
+      <div class="moment-header-actions">
+        <button id="momentNewBackground" class="moment-button" type="button">New background</button>
+        <button id="returnDashboard" class="moment-button" type="button">Dashboard</button>
+      </div>
+    </header>
+    <div class="moment-content">
+      <div class="moment-quote">
+        <blockquote id="momentQuote"></blockquote>
+        <cite id="momentQuoteAuthor"></cite>
+      </div>
+      <div class="moment-time-block">
+        <p id="momentDate"></p>
+        <time id="momentClock">--:--</time>
+      </div>
+      <div class="moment-focus">
+        <div>
+          <span id="momentFocusLabel">Focus session</span>
+          <strong id="momentFocusTimer">25:00</strong>
+        </div>
+        <div class="moment-duration" aria-label="Focus duration">
+          <button class="moment-segment active" data-minutes="25">25 min</button>
+          <button class="moment-segment" data-minutes="50">50 min</button>
+          <button class="moment-segment" data-minutes="90">90 min</button>
+        </div>
+        <button id="momentFocusToggle" class="moment-focus-button" type="button">Start focus</button>
+      </div>
+      <span id="momentImageSourceLabel" class="moment-source"></span>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/easymde.min.js"></script>
+  <script src="vendor/marked.umd.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="newtab.js"></script>
 </body>
 </html>

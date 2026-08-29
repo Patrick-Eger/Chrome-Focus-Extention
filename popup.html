@@ -1,45 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Whitelist Manager</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 15px; width: 350px; }
-    h2 { margin-top: 0; }
-    label { font-size: 1.1em; }
-    select, input { padding: 5px; margin: 5px 0; }
-    button { padding: 5px 8px; margin: 2px; }
-    #addCurrent { width: 100%; background: #1976d2; color: white; border: none; }
-    ul { list-style-type: none; padding: 0; max-height: 200px; overflow-y: auto; }
-    li { margin: 8px 0; display: flex; justify-content: space-between; background: #f0f0f0; padding: 5px; border-radius: 4px; }
-    .remove { color: red; cursor: pointer; font-weight: bold; }
-    #listActions { margin: 10px 0; }
-    #timerInput { width: 50px; }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Desk</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h2>Whitelist Blocker</h2>
-  <label>
-    <input type="checkbox" id="enableToggle"> Enable Blocking
-  </label>
-  <span> for <input type="number" id="timerInput" min="0" value="0"> minutes (0 = unlimited)</span>
-  <hr>
-  <div id="listSelector">
-    <label>Active List:</label>
-    <select id="activeListSelect"></select>
-  </div>
-  <div id="listActions">
-    <input type="text" id="newListName" placeholder="New list name">
-    <button id="createList">Create</button>
-    <button id="renameList">Rename</button>
-    <button id="deleteList">Delete</button>
-  </div>
-  <hr>
-  <button id="addCurrent">Add Current Site's Domain</button>
-  <div>
-    <input type="text" id="siteInput" placeholder="e.g., youtube.com">
-    <button id="addButton">Add</button>
-  </div>
-  <ul id="whitelistList"></ul>
+  <main class="popup-shell">
+    <header><span class="brand-mark" aria-hidden="true"></span><strong>Focus Desk</strong><span id="popupStatus">Ready</span></header>
+    <section class="timer-section">
+      <span class="eyebrow">Focus session</span>
+      <div id="popupTimer">25:00</div>
+      <select id="popupWorkspace" aria-label="Workspace"></select>
+      <div class="segmented">
+        <button data-minutes="25" class="active">25 min</button>
+        <button data-minutes="90">90 min</button>
+      </div>
+      <button id="popupFocusToggle" class="primary-button">Start focus</button>
+    </section>
+    <section class="quick-actions">
+      <button id="allowCurrentSite">Allow current site</button>
+      <button id="favoriteCurrentSite">Favorite current site</button>
+      <button id="captureCurrentSite">Save page to Inbox</button>
+      <button id="openSidePanel">Open side panel</button>
+      <button id="openDashboard">Open dashboard</button>
+    </section>
+    <p id="popupMessage" role="status"></p>
+  </main>
   <script src="popup.js"></script>
 </body>
 </html>
