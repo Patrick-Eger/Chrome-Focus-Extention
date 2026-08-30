@@ -18,7 +18,9 @@ that block every website outside the active workspace allowlist.
   adjustable readability overlay and card transparency set either for the whole
   dashboard or per individual card
 - System, light, and dark display modes with four shared UI color palettes
-- Configurable Moment layout, clock format and size, overlay, visible elements, and quote source
+- Centred Moment screen with a time-of-day greeting, a daily main-focus prompt,
+  and corner panels for links, tasks, and the focus timer
+- Configurable Moment clock format and size, overlay, visible elements, and quote source
 - Random or personal quotes with either online photos or a personal background-image library
 - Workspace-specific website allowlists
 - Workspace favorites with quick capture from the extension popup
@@ -211,6 +213,33 @@ Cards become translucent only while a photo is active, and the sidebar and top b
 keep a minimum opacity of their own so navigation stays readable at any slider
 position. With an empty library the setting reports that no images are saved and
 the dashboard stays plain.
+
+## The Moment screen
+
+Moment is the full-screen new-tab mode. Its layout follows the arrangement made
+familiar by Momentum: a full-bleed photo, a large light-weight clock centred just
+above the middle, a time-of-day greeting under it, and a single question below
+that - **What is your main focus for today?**
+
+Typing an answer replaces the question with the answer itself. Hovering it reveals
+a circle to tick it off and a cross to clear it. The answer belongs to one day: a
+new day asks the question again rather than carrying yesterday's answer forward.
+The name in the greeting is set in **Settings > Moment screen**; with no name it
+just reads "Good morning."
+
+The corners hold everything else, each a plain label until it is clicked:
+
+- **Links** (top left) - the current workspace's favorites
+- **New photo** (top right) - another image from the library
+- Gear and photo source (bottom left) - the gear returns to the dashboard
+- Quote (bottom centre)
+- **Todo** and **Focus** (bottom right) - open tasks, tickable in place, and the
+  25/50/90-minute focus timer
+
+One panel is open at a time and Escape closes them. Every element has its own
+switch under **Settings > Moment screen**, so the screen can be reduced to just a
+clock. Momentum's weather corner is not implemented; it needs a third-party
+weather service and a location, which the extension does not have.
 
 The **Appearance** settings offer System, Light, and Dark display modes. System
 follows the operating-system preference; the selected mode and accent palette apply

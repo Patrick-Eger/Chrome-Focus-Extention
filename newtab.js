@@ -3745,7 +3745,11 @@ function bindSettings() {
       autoStartGraceMinutes: clamp($('#autoStartGraceMinutes').value, 0, 60, 10),
       newTabMode: newTabMode === 'moment' ? 'moment' : 'dashboard',
       momentImageSource: nextImageSource === 'custom' ? 'custom' : 'online',
-      momentLayout: $('#momentLayout').value === 'right' ? 'right' : 'left',
+      momentGreetingName: $('#momentGreetingName').value.trim().slice(0, 60),
+      momentShowGreeting: $('#momentShowGreeting').checked,
+      momentShowMainFocus: $('#momentShowMainFocus').checked,
+      momentShowLinks: $('#momentShowLinks').checked,
+      momentShowTodo: $('#momentShowTodo').checked,
       momentClockFormat: $('#momentClockFormat').value === '12' ? '12' : '24',
       momentClockSize: $('#momentClockSize').value === 'compact' ? 'compact' : 'large',
       momentOverlay: clamp($('#momentOverlay').value, 0, 75, 42),
@@ -3814,7 +3818,13 @@ function renderSettings() {
   const imageSource = $(`input[name="momentImageSource"][value="${state.settings.momentImageSource}"]`);
   if (newTabMode) newTabMode.checked = true;
   if (imageSource) imageSource.checked = true;
-  $('#momentLayout').value = state.settings.momentLayout;
+  if (document.activeElement !== $('#momentGreetingName')) {
+    $('#momentGreetingName').value = state.settings.momentGreetingName || '';
+  }
+  $('#momentShowGreeting').checked = state.settings.momentShowGreeting !== false;
+  $('#momentShowMainFocus').checked = state.settings.momentShowMainFocus !== false;
+  $('#momentShowLinks').checked = state.settings.momentShowLinks !== false;
+  $('#momentShowTodo').checked = state.settings.momentShowTodo !== false;
   $('#momentClockSize').value = state.settings.momentClockSize;
   $('#momentClockFormat').value = state.settings.momentClockFormat;
   $('#momentOverlay').value = state.settings.momentOverlay;
@@ -4455,6 +4465,41 @@ function clearDashboardBackground() {
 
 function bindMomentMode() {
   $('#returnDashboard').addEventListener('click', () => setNewTabMode('dashboard'));
+
+  $('#momentFocusForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = $('#momentFocusInput').value.trim().slice(0, 200);
+    if (!text) return;
+    await saveMomentFocus({ text, done: false });
+  });
+
+  $('#momentFocusCheck').addEventListener('click', async () => {
+    await saveMomentFocus({ done: !momentFocusRecord().done });
+  });
+
+  $('#momentFocusClear').addEventListener('click', async () => {
+    await saveMomentFocus({ text: '', done: false });
+    $('#momentFocusInput').focus();
+  });
+
+  $('#momentLinksToggle').addEventListener('click', () => toggleMomentPanel('#momentLinksPanel', '#momentLinksToggle'));
+  $('#momentTodoToggle').addEventListener('click', () => toggleMomentPanel('#momentTodoPanel', '#momentTodoToggle'));
+  $('#momentFocusPanelToggle').addEventListener('click', () => toggleMomentPanel('#momentFocusPanel', '#momentFocusPanelToggle'));
+
+  $('#momentTodoPanel').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-moment-task]');
+    if (!button) return;
+    const tasks = state.tasks.map((task) => (task.id === button.dataset.momentTask
+      ? { ...task, completed: !task.completed, completedAt: task.completed ? null : Date.now(), status: task.completed ? 'in-progress' : 'done' }
+      : task));
+    await save({ tasks });
+  });
+
+  $('#momentScreen').addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    ['#momentLinksPanel', '#momentTodoPanel', '#momentFocusPanel'].forEach((selector) => $(selector).classList.add('hidden'));
+    ['#momentLinksToggle', '#momentTodoToggle', '#momentFocusPanelToggle'].forEach((selector) => $(selector).setAttribute('aria-expanded', 'false'));
+  });
   $('#momentNewBackground').addEventListener('click', async () => {
     momentInitialized = false;
     await refreshMomentExperience();
@@ -4504,14 +4549,107 @@ function renderMomentMode() {
 
 function applyMomentConfiguration() {
   const screen = $('#momentScreen');
-  screen.classList.toggle('layout-right', state.settings.momentLayout === 'right');
   screen.classList.toggle('clock-compact', state.settings.momentClockSize === 'compact');
   screen.style.setProperty('--moment-overlay', clamp(state.settings.momentOverlay, 0, 75, 42) / 100);
-  $('.moment-quote').classList.toggle('hidden', !state.settings.momentShowQuote);
+  $('.moment-bottom-centre').classList.toggle('hidden', !state.settings.momentShowQuote);
   $('#momentDate').classList.toggle('hidden', !state.settings.momentShowDate);
-  $('.moment-focus').classList.toggle('hidden', !state.settings.momentShowFocus);
+  // A page can render before the worker has merged in new defaults, so a missing
+  // toggle means "show", matching what the settings form reports.
+  const shows = (key) => state.settings[key] !== false;
+  $('#momentGreeting').classList.toggle('hidden', !shows('momentShowGreeting'));
+  $('#momentMainFocus').classList.toggle('hidden', !shows('momentShowMainFocus'));
+  $('#momentFocusPanelToggle').classList.toggle('hidden', !shows('momentShowFocus'));
+  if (!shows('momentShowFocus')) closeMomentPanel('#momentFocusPanel', '#momentFocusPanelToggle');
+  $('#momentTodoToggle').classList.toggle('hidden', !shows('momentShowTodo'));
+  if (!shows('momentShowTodo')) closeMomentPanel('#momentTodoPanel', '#momentTodoToggle');
+  $('#momentLinksToggle').classList.toggle('hidden', !shows('momentShowLinks'));
+  if (!shows('momentShowLinks')) closeMomentPanel('#momentLinksPanel', '#momentLinksToggle');
   $('#momentImageSourceLabel').classList.toggle('hidden', !state.settings.momentShowSource);
   renderMomentQuote();
+  renderMomentGreeting();
+  renderMomentMainFocus();
+  renderMomentLinks();
+  renderMomentTodo();
+}
+
+function renderMomentGreeting() {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const name = (state.settings.momentGreetingName || '').trim();
+  $('#momentGreeting').textContent = name ? `${part}, ${name}.` : `${part}.`;
+}
+
+function momentFocusRecord() {
+  const record = state.momentFocus && typeof state.momentFocus === 'object'
+    ? state.momentFocus
+    : { date: '', text: '', done: false };
+  // The main focus is a question about today, so yesterday's answer does not carry over.
+  return record.date === todayKey() ? record : { date: todayKey(), text: '', done: false };
+}
+
+function renderMomentMainFocus() {
+  const record = momentFocusRecord();
+  const hasFocus = Boolean(record.text);
+  $('#momentFocusForm').classList.toggle('hidden', hasFocus);
+  $('#momentFocusDone').classList.toggle('hidden', !hasFocus);
+  $('#momentFocusDone').classList.toggle('completed', hasFocus && record.done);
+  $('#momentFocusText').textContent = record.text;
+  $('#momentFocusCheck').setAttribute('aria-pressed', String(Boolean(record.done)));
+  if (!hasFocus && document.activeElement !== $('#momentFocusInput')) $('#momentFocusInput').value = '';
+}
+
+async function saveMomentFocus(patch) {
+  await save({ momentFocus: { ...momentFocusRecord(), ...patch, date: todayKey() } });
+}
+
+function renderMomentLinks() {
+  const panel = $('#momentLinksPanel');
+  const workspace = getWorkspace(state.activeWorkspaceId);
+  const favorites = (workspace && workspace.favorites) || [];
+  panel.innerHTML = favorites.length
+    ? favorites.map((favorite) => `
+      <div class="moment-link-row">
+        <img src="${escapeHtml(projectFaviconUrl(favorite.url, 16))}" alt="" loading="lazy">
+        <a href="${escapeHtml(favorite.url)}">${escapeHtml(favorite.title || hostnameFromUrl(favorite.url))}</a>
+      </div>`).join('')
+    : '<p class="moment-panel-empty">No favorites in this workspace yet.</p>';
+}
+
+function renderMomentTodo() {
+  const panel = $('#momentTodoPanel');
+  const tasks = state.tasks
+    .filter((task) => !task.completed || (task.completedAt && task.completedAt > Date.now() - 86400000))
+    .sort((a, b) => Number(a.completed) - Number(b.completed) || planningTaskScore(b) - planningTaskScore(a))
+    .slice(0, 12);
+  panel.innerHTML = tasks.length
+    ? tasks.map((task) => `
+      <div class="moment-todo-row${task.completed ? ' done' : ''}">
+        <button class="moment-todo-check" type="button" data-moment-task="${task.id}" aria-pressed="${Boolean(task.completed)}" aria-label="${task.completed ? 'Reopen' : 'Complete'} ${escapeHtml(task.title)}"></button>
+        <span>${escapeHtml(task.title)}</span>
+      </div>`).join('')
+    : '<p class="moment-panel-empty">Nothing open. Add tasks from the dashboard.</p>';
+}
+
+function toggleMomentPanel(panelSelector, toggleSelector) {
+  const panel = $(panelSelector);
+  const opening = panel.classList.contains('hidden');
+  // Only one corner panel at a time, so they never overlap the centre stack.
+  ['#momentLinksPanel', '#momentTodoPanel', '#momentFocusPanel'].forEach((selector) => {
+    const other = $(selector);
+    other.classList.add('hidden');
+  });
+  ['#momentLinksToggle', '#momentTodoToggle', '#momentFocusPanelToggle'].forEach((selector) => {
+    $(selector).setAttribute('aria-expanded', 'false');
+  });
+  if (opening) {
+    panel.classList.remove('hidden');
+    $(toggleSelector).setAttribute('aria-expanded', 'true');
+  }
+}
+
+function closeMomentPanel(panelSelector, toggleSelector) {
+  $(panelSelector).classList.add('hidden');
+  $(toggleSelector).setAttribute('aria-expanded', 'false');
 }
 
 function renderMomentQuote() {
@@ -4645,6 +4783,7 @@ function updateClock() {
   $('#headerClock').textContent = time;
   $('#todayLabel').textContent = date;
   $('#momentClock').textContent = momentTime;
+  if (state && $('#momentGreeting').textContent) renderMomentGreeting();
   $('#momentDate').textContent = date;
 }
 

@@ -542,7 +542,7 @@
           <section class="settings-section moment-settings">
             <span class="eyebrow">New tab appearance</span>
             <h2>Moment screen</h2>
-            <p>Choose the screen shown on new tabs and where its background photos come from.</p>
+            <p>Choose the screen shown on new tabs, who it greets, and where its background photos come from.</p>
             <div class="moment-settings-grid">
               <div>
                 <h3>Default screen</h3>
@@ -561,8 +561,8 @@
               <div class="moment-config-panel">
                 <h3>Layout and clock</h3>
                 <div class="moment-field-grid">
-                  <label class="field-label">Layout
-                    <select id="momentLayout"><option value="left">Left</option><option value="right">Right</option></select>
+                  <label class="field-label">Your name
+                    <input id="momentGreetingName" type="text" maxlength="60" placeholder="Shown in the greeting">
                   </label>
                   <label class="field-label">Clock size
                     <select id="momentClockSize"><option value="large">Large</option><option value="compact">Compact</option></select>
@@ -574,8 +574,12 @@
                 <label class="overlay-field" for="momentOverlay"><span>Photo overlay</span><output id="momentOverlayValue">42%</output></label>
                 <input id="momentOverlay" type="range" min="0" max="75" step="1">
                 <div class="visibility-options">
+                  <label><input id="momentShowGreeting" type="checkbox"> Show greeting</label>
+                  <label><input id="momentShowMainFocus" type="checkbox"> Show main focus</label>
                   <label><input id="momentShowQuote" type="checkbox"> Show quote</label>
                   <label><input id="momentShowDate" type="checkbox"> Show date</label>
+                  <label><input id="momentShowLinks" type="checkbox"> Show links</label>
+                  <label><input id="momentShowTodo" type="checkbox"> Show todo</label>
                   <label><input id="momentShowFocus" type="checkbox"> Show focus controls</label>
                   <label><input id="momentShowSource" type="checkbox"> Show photo source</label>
                 </div>
@@ -754,35 +758,58 @@
   <section id="momentScreen" class="moment-screen hidden" aria-label="Moment new tab screen">
     <img id="momentImage" class="moment-image" alt="">
     <div class="moment-scrim" aria-hidden="true"></div>
-    <header class="moment-header">
-      <div class="moment-brand"><span class="brand-mark" aria-hidden="true"></span>Focus Desk</div>
-      <div class="moment-header-actions">
-        <button id="momentNewBackground" class="moment-button" type="button">New background</button>
-        <button id="returnDashboard" class="moment-button" type="button">Dashboard</button>
-      </div>
-    </header>
-    <div class="moment-content">
-      <div class="moment-quote">
-        <blockquote id="momentQuote"></blockquote>
-        <cite id="momentQuoteAuthor"></cite>
-      </div>
-      <div class="moment-time-block">
-        <p id="momentDate"></p>
-        <time id="momentClock">--:--</time>
-      </div>
-      <div class="moment-focus">
-        <div>
-          <span id="momentFocusLabel">Focus session</span>
-          <strong id="momentFocusTimer">25:00</strong>
+
+    <div class="moment-corner moment-top-left">
+      <button id="momentLinksToggle" class="moment-chip" type="button" aria-expanded="false" aria-controls="momentLinksPanel">Links</button>
+      <div id="momentLinksPanel" class="moment-panel hidden"></div>
+    </div>
+
+    <div class="moment-corner moment-top-right">
+      <button id="momentNewBackground" class="moment-chip" type="button">New photo</button>
+    </div>
+
+    <div class="moment-centre">
+      <time id="momentClock">--:--</time>
+      <p id="momentGreeting" class="moment-greeting"></p>
+      <p id="momentDate" class="moment-date"></p>
+      <div id="momentMainFocus" class="moment-main-focus">
+        <form id="momentFocusForm" class="moment-focus-form">
+          <label for="momentFocusInput">What is your main focus for today?</label>
+          <input id="momentFocusInput" type="text" maxlength="200" autocomplete="off" aria-label="Main focus for today">
+        </form>
+        <div id="momentFocusDone" class="moment-focus-done hidden">
+          <button id="momentFocusCheck" class="moment-focus-check" type="button" aria-label="Mark main focus complete"></button>
+          <p id="momentFocusText"></p>
+          <button id="momentFocusClear" class="moment-focus-clear" type="button" aria-label="Clear main focus">&times;</button>
         </div>
+      </div>
+    </div>
+
+    <div class="moment-corner moment-bottom-left">
+      <button id="returnDashboard" class="moment-chip moment-gear" type="button" aria-label="Open the Focus Desk dashboard">&#9881;</button>
+      <span id="momentImageSourceLabel" class="moment-source"></span>
+    </div>
+
+    <div class="moment-bottom-centre">
+      <blockquote id="momentQuote"></blockquote>
+      <cite id="momentQuoteAuthor"></cite>
+    </div>
+
+    <div class="moment-corner moment-bottom-right">
+      <div id="momentFocusPanel" class="moment-panel hidden">
+        <div class="moment-panel-head"><span id="momentFocusLabel">Focus session</span><strong id="momentFocusTimer">25:00</strong></div>
         <div class="moment-duration" aria-label="Focus duration">
-          <button class="moment-segment active" data-minutes="25">25 min</button>
-          <button class="moment-segment" data-minutes="50">50 min</button>
-          <button class="moment-segment" data-minutes="90">90 min</button>
+          <button class="moment-segment active" data-minutes="25">25</button>
+          <button class="moment-segment" data-minutes="50">50</button>
+          <button class="moment-segment" data-minutes="90">90</button>
         </div>
         <button id="momentFocusToggle" class="moment-focus-button" type="button">Start focus</button>
       </div>
-      <span id="momentImageSourceLabel" class="moment-source"></span>
+      <div id="momentTodoPanel" class="moment-panel hidden"></div>
+      <div class="moment-corner-row">
+        <button id="momentTodoToggle" class="moment-chip" type="button" aria-expanded="false" aria-controls="momentTodoPanel">Todo</button>
+        <button id="momentFocusPanelToggle" class="moment-chip" type="button" aria-expanded="false" aria-controls="momentFocusPanel">Focus</button>
+      </div>
     </div>
   </section>
 

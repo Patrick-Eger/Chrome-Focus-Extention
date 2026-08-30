@@ -77,7 +77,6 @@ const DEFAULTS = {
     colorMode: 'system',
     newTabMode: 'dashboard',
     momentImageSource: 'online',
-    momentLayout: 'left',
     momentClockFormat: '24',
     momentClockSize: 'large',
     momentOverlay: 42,
@@ -85,6 +84,11 @@ const DEFAULTS = {
     momentShowDate: true,
     momentShowFocus: true,
     momentShowSource: true,
+    momentGreetingName: '',
+    momentShowGreeting: true,
+    momentShowMainFocus: true,
+    momentShowTodo: true,
+    momentShowLinks: true,
     momentQuoteMode: 'random',
     momentCustomQuote: '',
     momentCustomAuthor: '',
@@ -108,6 +112,7 @@ const DEFAULTS = {
     dateKey: null
   },
   temporaryAccess: {},
+  momentFocus: { date: '', text: '', done: false },
   calendarEvents: [],
   calendarList: [],
   calendarSyncTokens: {},
@@ -308,6 +313,7 @@ function mergeDefaults(current) {
     temporaryAccess: current.temporaryAccess && typeof current.temporaryAccess === 'object'
       ? current.temporaryAccess
       : {},
+    momentFocus: normalizeMomentFocus(current.momentFocus),
     calendarEvents: Array.isArray(current.calendarEvents)
       ? current.calendarEvents.map(normalizeCalendarEvent)
       : [],
@@ -1848,8 +1854,18 @@ function normalizeSettings(settings) {
     dashboardWidgets: normalizeDashboardWidgets(settings.dashboardWidgets),
     dashboardShowTaskBank: settings.dashboardShowTaskBank !== false,
     dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
+    momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
     dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
+  };
+}
+
+function normalizeMomentFocus(value) {
+  if (!value || typeof value !== 'object') return { date: '', text: '', done: false };
+  return {
+    date: normalizeDate(value.date) || '',
+    text: cleanText(value.text, 200),
+    done: Boolean(value.done)
   };
 }
 
