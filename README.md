@@ -175,15 +175,17 @@ context menu can also create an Inbox link/task or open the project capture pane
 The start page can be arranged from either of two places, both writing the same
 settings.
 
-**Customize** on the Today view opens an editing mode on the dashboard itself.
-Each card gets a bar naming it and its column, cards are dragged where they
-should go - onto another card to sit before it, or onto empty column space to
-land at the end - and **Hide** removes one into a tray that puts it back. Empty
-columns stay on screen as drop targets while editing. The card contents are inert
-in this mode, so a card can be grabbed anywhere without triggering its controls.
-The same panel carries the task-bank toggle, the background switch, and both
-sliders, so every change previews on the real dashboard underneath. **Done**
-leaves the mode.
+**Customize** in the top bar, beside **New note**, opens an editing mode on the
+dashboard itself. The button appears only on the Today view and turns into **Done
+editing** while the mode is on; because the top bar is sticky, it stays reachable
+at any scroll position. Each card gets a bar naming it and its column, cards are
+dragged where they should go - onto another card to sit before it, or onto empty
+column space to land at the end - and **Hide** removes one into a tray that puts
+it back. Empty columns stay on screen as drop targets while editing. The card
+contents are inert in this mode, so a card can be grabbed anywhere without
+triggering its controls. The editing panel carries the task-bank toggle, the
+background switch, and both sliders, so every change previews on the real
+dashboard underneath.
 
 **Settings > Start page** offers the same control as an ordered list, which is
 the keyboard-friendly path: a checkbox, a column dropdown, and arrow buttons per

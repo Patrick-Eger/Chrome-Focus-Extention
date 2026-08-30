@@ -222,6 +222,7 @@ function bindNavigation() {
 function showView(name) {
   $$('.nav-button').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === `${name}View`));
+  $('#toggleDashboardEditing').classList.toggle('hidden', name !== 'today');
   const view = $(`#${name}View`);
   $('#viewTitle').textContent = view ? view.dataset.title : 'Focus Desk';
   if (name === 'projects') renderProjects();
@@ -3902,7 +3903,6 @@ function applyDashboardLayout() {
 
 function bindDashboardEditor() {
   $('#toggleDashboardEditing').addEventListener('click', () => setDashboardEditing(!dashboardEditing));
-  $('#doneDashboardEditing').addEventListener('click', () => setDashboardEditing(false));
 
   $('#dashboardResetLayout').addEventListener('click', async () => {
     await save({
@@ -4038,10 +4038,11 @@ function setDashboardEditing(editing) {
 
 function renderDashboardEditor() {
   const toggle = $('#toggleDashboardEditing');
-  toggle.textContent = dashboardEditing ? 'Editing start page' : 'Customize';
+  toggle.textContent = dashboardEditing ? 'Done editing' : 'Customize';
   toggle.setAttribute('aria-pressed', String(dashboardEditing));
   toggle.classList.toggle('primary', dashboardEditing);
   toggle.classList.toggle('secondary', !dashboardEditing);
+  toggle.classList.toggle('hidden', !$('#todayView').classList.contains('active'));
   $('#dashboardEditor').classList.toggle('hidden', !dashboardEditing);
   document.body.classList.toggle('dashboard-editing', dashboardEditing);
   if (!dashboardEditing) {
@@ -4055,6 +4056,12 @@ function renderDashboardEditor() {
   for (const widget of widgets) {
     const card = $(`[data-widget="${widget.id}"]`);
     if (!card) continue;
+    if (!widget.visible) {
+      // Off the board and represented by the tray instead, so it needs no chrome.
+      card.querySelector(':scope > .widget-edit-bar')?.remove();
+      card.removeAttribute('draggable');
+      continue;
+    }
     card.setAttribute('draggable', 'true');
     let bar = card.querySelector(':scope > .widget-edit-bar');
     if (!bar) {

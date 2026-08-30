@@ -46,20 +46,17 @@
         </div>
         <div class="topbar-meta">
           <time id="headerClock">--:--</time>
+          <button id="toggleDashboardEditing" class="button secondary hidden" type="button" aria-pressed="false">Customize</button>
           <button id="quickNoteButton" class="button secondary">New note</button>
         </div>
       </header>
 
       <section id="todayView" class="view active" data-title="Plan the day">
         <div class="dashboard-toolbar">
-          <button id="toggleDashboardEditing" class="button secondary small" type="button" aria-pressed="false">Customize</button>
           <div id="dashboardEditor" class="dashboard-editor hidden">
             <div class="dashboard-editor-row">
               <p class="dashboard-editor-hint">Drag a card to move it. Cards can sit in the full-width band, the main column, or the side column.</p>
-              <div class="button-row">
-                <button id="dashboardResetLayout" class="text-button" type="button">Reset layout</button>
-                <button id="doneDashboardEditing" class="button primary small" type="button">Done</button>
-              </div>
+              <button id="dashboardResetLayout" class="text-button" type="button">Reset layout</button>
             </div>
             <div id="dashboardHiddenTray" class="dashboard-hidden-tray hidden">
               <span class="eyebrow">Hidden cards</span>

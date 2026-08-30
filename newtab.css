@@ -1215,8 +1215,8 @@ body.dashboard-has-background .focus-band { backdrop-filter: blur(18px); }
 .dashboard-empty-state .text-button { font-size: inherit; }
 
 /* Start-page editing, driven from the dashboard itself */
-.dashboard-toolbar { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
-.dashboard-editor { width: 100%; padding: 16px; border: 1px solid var(--line-dark); background: var(--panel-bg); display: flex; flex-direction: column; gap: 14px; }
+.dashboard-toolbar:not(:empty) { display: block; }
+.dashboard-editor { width: 100%; margin-bottom: 24px; padding: 16px; border: 1px solid var(--line-dark); background: var(--panel-bg); display: flex; flex-direction: column; gap: 14px; }
 .dashboard-editor-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .dashboard-editor-hint { margin: 0; color: var(--muted); font-size: 12px; max-width: 60ch; }
 .dashboard-editor-controls { align-items: flex-start; }
