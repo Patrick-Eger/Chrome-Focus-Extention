@@ -921,7 +921,8 @@ textarea { resize: vertical; line-height: 1.55; }
 }
 .moment-chip:hover { opacity: 1; }
 .moment-chip:focus-visible { outline: 2px solid #ffffff; outline-offset: 3px; }
-.moment-gear { font-size: 16px; line-height: 1; }
+.moment-gear { display: flex; align-items: center; gap: 6px; }
+.moment-gear span { font-size: 15px; line-height: 1; }
 
 .moment-source { font-size: 12px; font-weight: 300; opacity: .72; }
 

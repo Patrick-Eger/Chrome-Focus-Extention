@@ -231,7 +231,7 @@ The corners hold everything else, each a plain label until it is clicked:
 
 - **Links** (top left) - the current workspace's favorites
 - **New photo** (top right) - another image from the library
-- Gear and photo source (bottom left) - the gear returns to the dashboard
+- **Dashboard** and photo source (bottom left) - back to the full dashboard
 - Quote (bottom centre)
 - **Todo** and **Focus** (bottom right) - open tasks, tickable in place, and the
   25/50/90-minute focus timer
