@@ -59,11 +59,11 @@ const TASK_STATUS_LABELS = {
 const DASHBOARD_LANES = ['full', 'main', 'side'];
 const DASHBOARD_LANE_LABELS = { full: 'Full width', main: 'Main column', side: 'Side column' };
 const DEFAULT_DASHBOARD_WIDGETS = [
-  { id: 'focus', lane: 'full', visible: true },
-  { id: 'dayPlan', lane: 'main', visible: true },
-  { id: 'tasks', lane: 'side', visible: true },
-  { id: 'upcoming', lane: 'side', visible: true },
-  { id: 'recall', lane: 'side', visible: true }
+  { id: 'focus', lane: 'full', visible: true, transparency: null },
+  { id: 'dayPlan', lane: 'main', visible: true, transparency: null },
+  { id: 'tasks', lane: 'side', visible: true, transparency: null },
+  { id: 'upcoming', lane: 'side', visible: true, transparency: null },
+  { id: 'recall', lane: 'side', visible: true, transparency: null }
 ];
 const DASHBOARD_WIDGET_META = {
   focus: { title: 'Focus session', description: 'Timer, workspace picker, and start control.' },
@@ -3863,6 +3863,8 @@ function applyDashboardLayout() {
     const element = $(`[data-widget="${widget.id}"]`);
     if (!element) continue;
     element.classList.toggle('hidden', !widget.visible);
+    if (widget.transparency === null) element.style.removeProperty('--dashboard-panel-opacity');
+    else element.style.setProperty('--dashboard-panel-opacity', `${100 - widget.transparency}%`);
     (desired.get(widget.lane) || desired.get('main')).push(element);
   }
 
@@ -3956,10 +3958,44 @@ function bindDashboardEditor() {
   const view = $('#todayView');
 
   view.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-widget-hide]');
-    if (!button) return;
-    await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === button.dataset.widgetHide
-      ? { ...widget, visible: false }
+    const hide = event.target.closest('[data-widget-hide]');
+    if (hide) {
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === hide.dataset.widgetHide
+        ? { ...widget, visible: false }
+        : widget)));
+      return;
+    }
+    const auto = event.target.closest('[data-widget-alpha-auto]');
+    if (auto) {
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === auto.dataset.widgetAlphaAuto
+        ? { ...widget, transparency: null }
+        : widget)));
+    }
+  });
+
+  // A range inside a draggable card would start a drag instead of sliding, so the
+  // card gives up draggability for as long as the pointer is on a slider.
+  view.addEventListener('pointerdown', (event) => {
+    if (!dashboardEditing) return;
+    const card = event.target.closest('[data-widget]');
+    if (card) card.draggable = !event.target.closest('.widget-edit-alpha');
+  });
+
+  view.addEventListener('input', (event) => {
+    const id = event.target.dataset.widgetAlpha;
+    if (!id) return;
+    const card = $(`[data-widget="${id}"]`);
+    if (card) card.style.setProperty('--dashboard-panel-opacity', `${100 - clamp(event.target.value, 0, 85, 30)}%`);
+    const output = $(`[data-widget-alpha-value="${id}"]`);
+    if (output) output.textContent = `${event.target.value}%`;
+  });
+
+  view.addEventListener('change', async (event) => {
+    const id = event.target.dataset.widgetAlpha;
+    if (!id) return;
+    const transparency = clamp(event.target.value, 0, 85, 30);
+    await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === id
+      ? { ...widget, transparency }
       : widget)));
   });
 
@@ -4001,6 +4037,10 @@ function bindDashboardEditor() {
     clearDashboardDropHints();
     await moveDashboardCard(movedId, lane.dataset.lane, card && card.dataset.widget);
   });
+}
+
+function usesPhotoBackground() {
+  return state.settings.dashboardBackground === 'library';
 }
 
 function clearDashboardDropHints() {
@@ -4070,10 +4110,23 @@ function renderDashboardEditor() {
       // Absolutely positioned, so it never becomes a grid or flex item of the card.
       card.appendChild(bar);
     }
+    const title = DASHBOARD_WIDGET_META[widget.id].title;
+    const alpha = effectiveWidgetTransparency(widget);
+    const overridden = widget.transparency !== null;
     bar.innerHTML = `
-      <span class="widget-edit-title"><span aria-hidden="true">⠿</span> ${escapeHtml(DASHBOARD_WIDGET_META[widget.id].title)}</span>
-      <span class="widget-edit-lane">${DASHBOARD_LANE_LABELS[widget.lane]}</span>
-      <button type="button" data-widget-hide="${widget.id}">Hide</button>`;
+      <div class="widget-edit-main">
+        <span class="widget-edit-title"><span aria-hidden="true">⠿</span> ${escapeHtml(title)}</span>
+        <span class="widget-edit-lane">${DASHBOARD_LANE_LABELS[widget.lane]}</span>
+        <button type="button" data-widget-hide="${widget.id}">Hide</button>
+      </div>
+      ${usesPhotoBackground() ? `
+      <div class="widget-edit-alpha">
+        <input type="range" min="0" max="85" step="1" value="${alpha}" data-widget-alpha="${widget.id}" aria-label="Transparency for ${escapeHtml(title)}">
+        <output data-widget-alpha-value="${widget.id}">${alpha}%</output>
+        ${overridden
+          ? `<button class="text-button" type="button" data-widget-alpha-auto="${widget.id}">Auto</button>`
+          : '<span class="widget-edit-lane">Auto</span>'}
+      </div>` : ''}`;
   }
 
   const hidden = widgets.filter((widget) => !widget.visible);
@@ -4095,6 +4148,18 @@ function renderDashboardEditor() {
   $('#dashboardEditPhotoStatus').textContent = dashboardPhotoStatus;
 }
 
+function widgetTransparency(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? clamp(number, 0, 85, 30) : null;
+}
+
+function effectiveWidgetTransparency(widget) {
+  return widget.transparency === null
+    ? clamp(state.settings.dashboardPanelTransparency, 0, 85, 30)
+    : widget.transparency;
+}
+
 function dashboardWidgets() {
   const stored = Array.isArray(state.settings.dashboardWidgets) ? state.settings.dashboardWidgets : [];
   const widgets = [];
@@ -4107,7 +4172,8 @@ function dashboardWidgets() {
     widgets.push({
       id,
       lane: DASHBOARD_LANES.includes(entry && entry.lane) ? entry.lane : fallback.lane,
-      visible: !(entry && entry.visible === false)
+      visible: !(entry && entry.visible === false),
+      transparency: widgetTransparency(entry && entry.transparency)
     });
   }
   for (const fallback of DEFAULT_DASHBOARD_WIDGETS) {
@@ -4144,6 +4210,15 @@ function renderDashboardWidgetList() {
           <button type="button" data-widget-move="up" data-widget-id="${widget.id}" aria-label="Move ${escapeHtml(meta.title)} up"${index === 0 ? ' disabled' : ''}>↑</button>
           <button type="button" data-widget-move="down" data-widget-id="${widget.id}" aria-label="Move ${escapeHtml(meta.title)} down"${index === widgets.length - 1 ? ' disabled' : ''}>↓</button>
         </span>
+        ${usesPhotoBackground() ? `
+        <span class="widget-row-alpha">
+          <label for="widgetAlpha-${widget.id}">Transparency</label>
+          <input id="widgetAlpha-${widget.id}" type="range" min="0" max="85" step="1" value="${effectiveWidgetTransparency(widget)}" data-widget-alpha="${widget.id}">
+          <output data-widget-alpha-value="${widget.id}">${effectiveWidgetTransparency(widget)}%</output>
+          ${widget.transparency === null
+            ? '<span class="widget-row-auto">Auto</span>'
+            : `<button class="text-button" type="button" data-widget-alpha-auto="${widget.id}">Auto</button>`}
+        </span>` : ''}
       </li>`;
   }).join('');
   $('#dashboardShowTaskBank').checked = state.settings.dashboardShowTaskBank !== false;
@@ -4181,10 +4256,25 @@ function bindDashboardLayoutSettings() {
       await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === laneId
         ? { ...widget, lane }
         : widget)));
+      return;
+    }
+    const alphaId = event.target.dataset.widgetAlpha;
+    if (alphaId) {
+      const transparency = clamp(event.target.value, 0, 85, 30);
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === alphaId
+        ? { ...widget, transparency }
+        : widget)));
     }
   });
 
   list.addEventListener('click', async (event) => {
+    const auto = event.target.closest('[data-widget-alpha-auto]');
+    if (auto) {
+      await saveDashboardWidgets(dashboardWidgets().map((widget) => (widget.id === auto.dataset.widgetAlphaAuto
+        ? { ...widget, transparency: null }
+        : widget)));
+      return;
+    }
     const button = event.target.closest('[data-widget-move]');
     if (!button) return;
     const widgets = dashboardWidgets();
@@ -4229,6 +4319,15 @@ function bindDashboardLayoutSettings() {
     const [moved] = widgets.splice(from, 1);
     widgets.splice(to, 0, moved);
     await saveDashboardWidgets(widgets);
+  });
+
+  list.addEventListener('input', (event) => {
+    const id = event.target.dataset.widgetAlpha;
+    if (!id) return;
+    const card = $(`[data-widget="${id}"]`);
+    if (card) card.style.setProperty('--dashboard-panel-opacity', `${100 - clamp(event.target.value, 0, 85, 30)}%`);
+    const output = $(`[data-widget-alpha-value="${id}"]`);
+    if (output) output.textContent = `${event.target.value}%`;
   });
 
   $('#dashboardShowTaskBank').addEventListener('change', async (event) => {

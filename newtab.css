@@ -1164,6 +1164,12 @@ body.dashboard-has-background {
   --topbar-background: var(--shell-bg);
   background: transparent;
 }
+/* Re-derive the surface on the card itself, so a card carrying its own
+   --dashboard-panel-opacity overrides the dashboard-wide value. */
+body.dashboard-has-background [data-widget] {
+  --panel-bg: color-mix(in srgb, var(--paper) var(--dashboard-panel-opacity), transparent);
+  --panel-surface: color-mix(in srgb, var(--surface) var(--dashboard-panel-opacity), transparent);
+}
 body.dashboard-has-background .app-shell { position: relative; z-index: 1; background: transparent; }
 body.dashboard-has-background .sidebar { background: var(--shell-bg); backdrop-filter: blur(18px); }
 body.dashboard-has-background .topbar { backdrop-filter: blur(18px); }
@@ -1200,6 +1206,11 @@ body.dashboard-has-background .focus-band { backdrop-filter: blur(18px); }
 }
 .widget-move button:disabled { opacity: .35; cursor: default; }
 .widget-move button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+.widget-row-alpha { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.widget-row-alpha label { white-space: nowrap; }
+.widget-row-alpha input[type="range"] { flex: 1 1 auto; min-width: 80px; margin: 0; accent-color: var(--accent); }
+.widget-row-alpha output { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.widget-row-auto { opacity: .6; }
 .widget-list-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .dashboard-background-options { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 
@@ -1227,6 +1238,7 @@ body.dashboard-has-background .focus-band { backdrop-filter: blur(18px); }
 body.dashboard-editing [data-widget] {
   position: relative;
   padding-top: 38px;
+  transition: padding-top 0s;
   outline: 1px dashed var(--accent);
   outline-offset: 3px;
   cursor: grab;
@@ -1242,11 +1254,8 @@ body.dashboard-editing [data-widget].drop-before { outline-style: solid; outline
   top: 0;
   left: 0;
   right: 0;
-  height: 30px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
+  flex-direction: column;
   background: var(--ink);
   color: var(--paper);
   font-size: 11px;
@@ -1254,6 +1263,19 @@ body.dashboard-editing [data-widget].drop-before { outline-style: solid; outline
   text-transform: uppercase;
   letter-spacing: .04em;
 }
+.widget-edit-main { min-height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 10px; }
+.widget-edit-alpha {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 4px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.widget-edit-alpha input[type="range"] { flex: 1 1 auto; min-width: 60px; margin: 0; accent-color: var(--paper); }
+.widget-edit-alpha output { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 .widget-edit-title { display: flex; align-items: center; gap: 6px; }
 .widget-edit-lane { margin-left: auto; opacity: .7; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .widget-edit-bar button {
@@ -1265,6 +1287,9 @@ body.dashboard-editing [data-widget].drop-before { outline-style: solid; outline
 }
 .widget-edit-bar button:hover { background: var(--paper); color: var(--ink); }
 
+/* The bar grows a second row for the transparency slider once a photo is on. */
+body.dashboard-editing.dashboard-has-background [data-widget] { padding-top: 70px; }
+body.dashboard-editing .widget-edit-alpha .text-button { color: var(--paper); text-decoration: underline; font-size: 11px; }
 body.dashboard-editing .dashboard-lane.lane-empty {
   min-height: 120px;
   border: 1px dashed var(--line-dark);

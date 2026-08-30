@@ -15,7 +15,8 @@ that block every website outside the active workspace allowlist.
 - On-dashboard editing mode that arranges those cards by dragging them where
   they sit, with background and transparency sliders that preview live
 - Optional dashboard background photo from the personal image library, with an
-  adjustable readability overlay and adjustable card transparency
+  adjustable readability overlay and card transparency set either for the whole
+  dashboard or per individual card
 - System, light, and dark display modes with four shared UI color palettes
 - Configurable Moment layout, clock format and size, overlay, visible elements, and quote source
 - Random or personal quotes with either online photos or a personal background-image library
@@ -80,7 +81,7 @@ that block every website outside the active workspace allowlist.
 - Automatic v15 migration that adds standalone reminders without converting them
   into work blocks or focus sessions
 - Automatic v16 migration that adds the start-page layout, dashboard background,
-  and card-transparency settings without changing any existing card
+  and card-transparency settings, leaving every card on the shared value
 
 All productivity data is stored in `chrome.storage.local`. No backend or account is
 required for the extension itself.
@@ -195,11 +196,19 @@ leaves a short note pointing back to the settings.
 The same section can put a background photo behind the dashboard. It draws from
 the personal image library shared with Moment mode, so images added under
 **Moment screen** are available here too and a different one is chosen on every
-new tab. Two sliders control how much of it shows. **Readability overlay** fades
-the photo behind the whole interface, and **Card transparency** sets how far the
-cards themselves let it through, from fully opaque to almost invisible. Cards
-become translucent only while a photo is active, and the sidebar and top bar keep
-a minimum opacity of their own so navigation stays readable at any slider
+new tab. **Readability overlay** fades the photo behind the whole interface, and
+**Card transparency** sets how far the cards themselves let it through, from fully
+opaque to almost invisible.
+
+Transparency can also be set per card. While a photo is active, each card carries
+its own slider - in its bar in editing mode, and as an extra row in the Settings
+list. A card left on **Auto** follows the dashboard-wide value, so moving that
+slider changes only the cards that have no value of their own; giving a card its
+own value takes it out of that group until **Auto** puts it back. Per-card values
+are kept when the photo is switched off and apply again when it returns.
+
+Cards become translucent only while a photo is active, and the sidebar and top bar
+keep a minimum opacity of their own so navigation stays readable at any slider
 position. With an empty library the setting reports that no images are saved and
 the dashboard stays plain.
 

@@ -15,12 +15,13 @@ const CONTEXT_SAVE_PROJECT = 'focus-desk-save-project';
 const CONTEXT_OPEN_PANEL = 'focus-desk-open-panel';
 const DASHBOARD_WIDGET_IDS = ['focus', 'dayPlan', 'tasks', 'upcoming', 'recall'];
 const DASHBOARD_LANES = ['full', 'main', 'side'];
+// transparency: null follows the dashboard-wide slider, a number overrides it.
 const DEFAULT_DASHBOARD_WIDGETS = [
-  { id: 'focus', lane: 'full', visible: true },
-  { id: 'dayPlan', lane: 'main', visible: true },
-  { id: 'tasks', lane: 'side', visible: true },
-  { id: 'upcoming', lane: 'side', visible: true },
-  { id: 'recall', lane: 'side', visible: true }
+  { id: 'focus', lane: 'full', visible: true, transparency: null },
+  { id: 'dayPlan', lane: 'main', visible: true, transparency: null },
+  { id: 'tasks', lane: 'side', visible: true, transparency: null },
+  { id: 'upcoming', lane: 'side', visible: true, transparency: null },
+  { id: 'recall', lane: 'side', visible: true, transparency: null }
 ];
 const SYSTEM_ALLOWLIST = [
   'accounts.google.com',
@@ -1852,6 +1853,12 @@ function normalizeSettings(settings) {
   };
 }
 
+function normalizeWidgetTransparency(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? clampNumber(number, 0, 85, 30) : null;
+}
+
 function normalizeDashboardWidgets(value) {
   const widgets = [];
   const seen = new Set();
@@ -1863,7 +1870,8 @@ function normalizeDashboardWidgets(value) {
     widgets.push({
       id,
       lane: DASHBOARD_LANES.includes(entry && entry.lane) ? entry.lane : fallback.lane,
-      visible: !(entry && entry.visible === false)
+      visible: !(entry && entry.visible === false),
+      transparency: normalizeWidgetTransparency(entry && entry.transparency)
     });
   }
   for (const fallback of DEFAULT_DASHBOARD_WIDGETS) {

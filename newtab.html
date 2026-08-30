@@ -55,7 +55,7 @@
         <div class="dashboard-toolbar">
           <div id="dashboardEditor" class="dashboard-editor hidden">
             <div class="dashboard-editor-row">
-              <p class="dashboard-editor-hint">Drag a card to move it. Cards can sit in the full-width band, the main column, or the side column.</p>
+              <p class="dashboard-editor-hint">Drag a card to move it. Cards can sit in the full-width band, the main column, or the side column. With a background photo on, each card also carries its own transparency slider; leave it on <strong>Auto</strong> to follow the value below.</p>
               <button id="dashboardResetLayout" class="text-button" type="button">Reset layout</button>
             </div>
             <div id="dashboardHiddenTray" class="dashboard-hidden-tray hidden">
@@ -68,7 +68,7 @@
               <div id="dashboardEditSliders" class="dashboard-editor-sliders hidden">
                 <label class="overlay-field" for="dashboardEditOverlay"><span>Readability overlay</span><output id="dashboardEditOverlayValue">55%</output></label>
                 <input id="dashboardEditOverlay" type="range" min="0" max="90" step="1">
-                <label class="overlay-field" for="dashboardEditTransparency"><span>Card transparency</span><output id="dashboardEditTransparencyValue">30%</output></label>
+                <label class="overlay-field" for="dashboardEditTransparency"><span>Card transparency (all Auto cards)</span><output id="dashboardEditTransparencyValue">30%</output></label>
                 <input id="dashboardEditTransparency" type="range" min="0" max="85" step="1">
                 <div class="button-row">
                   <button id="dashboardEditNewPhoto" class="button secondary small" type="button">Another photo</button>
@@ -531,7 +531,7 @@
             <div id="dashboardBackgroundOptions" class="dashboard-background-options hidden">
               <label class="overlay-field" for="dashboardOverlay"><span>Readability overlay</span><output id="dashboardOverlayValue">55%</output></label>
               <input id="dashboardOverlay" type="range" min="0" max="90" step="1">
-              <label class="overlay-field" for="dashboardPanelTransparency"><span>Card transparency</span><output id="dashboardPanelTransparencyValue">30%</output></label>
+              <label class="overlay-field" for="dashboardPanelTransparency"><span>Card transparency (all Auto cards)</span><output id="dashboardPanelTransparencyValue">30%</output></label>
               <input id="dashboardPanelTransparency" type="range" min="0" max="85" step="1">
               <div class="button-row">
                 <button id="dashboardNewBackground" class="button secondary small" type="button">Another photo</button>
