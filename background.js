@@ -29,6 +29,7 @@ const SYSTEM_ALLOWLIST = [
   'chrome.google.com'
 ];
 let initializationPromise = null;
+let storageUpdateQueue = Promise.resolve();
 let blockRuleUpdateQueue = Promise.resolve();
 let workBlockAlarmSyncQueue = Promise.resolve();
 let standaloneReminderAlarmSyncQueue = Promise.resolve();
@@ -195,6 +196,7 @@ async function handleAlarm(alarm) {
         requireInteraction: true
       });
     }
+    await clearTemporaryAccess();
     await updateBlockRule();
     return;
   }
@@ -240,32 +242,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function initialize() {
-  const current = await chrome.storage.local.get(null);
-  const next = mergeDefaults(current);
+  // Read the legacy store up front: it is the only await between the read and the
+  // write below, and the updater has to stay synchronous to be atomic.
+  const legacy = await chrome.storage.sync.get(['lists', 'todos', 'activeList']);
+  let next = null;
 
-  if (!next.migratedLegacyData) {
-    const legacy = await chrome.storage.sync.get(['lists', 'todos', 'activeList']);
-    migrateLegacyData(next, legacy);
-  }
+  await runStorageUpdate(null, (current) => {
+    next = mergeDefaults(current);
 
-  next.temporaryAccess = removeExpiredAccess(next.temporaryAccess);
-  if (next.focus.active && next.focus.endAt && next.focus.endAt <= Date.now()) {
-    if (next.focus.blockId && next.focus.dateKey) {
-      next.dailyPlans = updateBlockInPlans(
-        next.dailyPlans,
-        next.focus.dateKey,
-        next.focus.blockId,
-        (block) => ({
-          ...block,
-          status: block.status === 'active' ? 'needs-review' : block.status,
-          updatedAt: Date.now()
-        })
-      );
+    if (!next.migratedLegacyData) migrateLegacyData(next, legacy);
+
+    next.temporaryAccess = removeExpiredAccess(next.temporaryAccess);
+    if (next.focus.active && next.focus.endAt && next.focus.endAt <= Date.now()) {
+      if (next.focus.blockId && next.focus.dateKey) {
+        next.dailyPlans = updateBlockInPlans(
+          next.dailyPlans,
+          next.focus.dateKey,
+          next.focus.blockId,
+          (block) => ({
+            ...block,
+            status: block.status === 'active' ? 'needs-review' : block.status,
+            updatedAt: Date.now()
+          })
+        );
+      }
+      next.focus = { ...next.focus, active: false, endAt: null, blockId: null, dateKey: null };
     }
-    next.focus = { ...next.focus, active: false, endAt: null, blockId: null, dateKey: null };
-  }
+    return next;
+  });
 
-  await chrome.storage.local.set(next);
   if (next.focus.active && next.focus.endAt) {
     chrome.alarms.create(FOCUS_ALARM, { when: next.focus.endAt });
   }
@@ -354,8 +359,11 @@ function migrateLegacyData(target, legacy) {
     target.focus.workspaceId = target.activeWorkspaceId;
   }
 
-  const legacyTodos = legacy.todos && typeof legacy.todos === 'object' ? legacy.todos : {};
-  target.tasks = Object.entries(legacyTodos).flatMap(([listName, items]) => {
+  // Guarded like the lists branch above: without this, a profile whose migration
+  // flag is missing has its entire task list replaced by an empty array.
+  const legacyTodos = legacy.todos && typeof legacy.todos === 'object' ? legacy.todos : null;
+  if (legacyTodos && Object.keys(legacyTodos).length) {
+    target.tasks = Object.entries(legacyTodos).flatMap(([listName, items]) => {
     const workspace = target.workspaces.find((item) => item.name === listName);
     return Array.isArray(items) ? items.map((todo, index) => ({
       id: `legacy-task-${Date.now()}-${index}-${slug(listName)}`,
@@ -374,8 +382,9 @@ function migrateLegacyData(target, legacy) {
       subtasks: [],
       createdAt: Date.now(),
       updatedAt: Date.now()
-    })).filter((task) => task.title) : [];
-  });
+      })).filter((task) => task.title) : [];
+    });
+  }
   target.migratedLegacyData = true;
 }
 
@@ -435,6 +444,8 @@ async function handleMessage(message, sender) {
       return completeWorkBlock(message);
     case 'rolloverWorkBlock':
       return rolloverWorkBlock(message);
+    case 'completeTask':
+      return completeTask(message.id);
     case 'completeReminder':
       return completeStandaloneReminder(message.id);
     default:
@@ -796,6 +807,7 @@ async function startFocus(message) {
   };
   await chrome.storage.local.set({ focus });
   chrome.alarms.create(FOCUS_ALARM, { when: focus.endAt });
+  await clearTemporaryAccess();
   await updateBlockRule();
   return { focus };
 }
@@ -805,6 +817,7 @@ async function stopFocus() {
   const nextFocus = { ...focus, active: false, endAt: null, blockId: null, dateKey: null };
   await chrome.storage.local.set({ focus: nextFocus });
   await chrome.alarms.clear(FOCUS_ALARM);
+  await clearTemporaryAccess();
   await updateBlockRule();
   return { focus: nextFocus };
 }
@@ -900,54 +913,63 @@ async function listCalendars(interactive) {
 
 async function syncCalendars(interactive) {
   await ensureInitialized();
-  let data = await chrome.storage.local.get([
-    'calendarList',
-    'calendarEvents',
-    'calendarSyncTokens',
-    'settings',
-    'dailyPlans'
-  ]);
+  let data = await chrome.storage.local.get(['calendarList', 'calendarSyncTokens', 'settings']);
   if (!data.calendarList || !data.calendarList.length) {
     await listCalendars(interactive);
-    data = await chrome.storage.local.get([
-      'calendarList',
-      'calendarEvents',
-      'calendarSyncTokens',
-      'settings',
-      'dailyPlans'
-    ]);
+    data = await chrome.storage.local.get(['calendarList', 'calendarSyncTokens', 'settings']);
   }
   const token = await getGoogleToken(interactive);
   const selected = (data.calendarList || []).filter((calendar) => calendar.selected || calendar.primary);
-  let calendarEvents = data.calendarEvents || [];
-  let calendarSyncTokens = { ...(data.calendarSyncTokens || {}) };
-  let dailyPlans = data.dailyPlans || {};
+  const syncTokens = { ...(data.calendarSyncTokens || {}) };
+  const results = [];
 
   for (const calendar of selected) {
-    const result = await syncOneCalendar(calendar, token, calendarEvents, calendarSyncTokens[calendar.id]);
-    calendarEvents = result.calendarEvents;
-    if (result.nextSyncToken) calendarSyncTokens[calendar.id] = result.nextSyncToken;
-    dailyPlans = applyCalendarChangesToPlans(dailyPlans, result.changedEvents, calendar.id);
+    const result = await syncOneCalendar(calendar, token, syncTokens[calendar.id]);
+    results.push({ calendar, ...result });
   }
 
   const calendarAccount = await getGoogleProfile();
   const calendarLastSyncedAt = Date.now();
-  await chrome.storage.local.set({
-    calendarEvents,
-    calendarSyncTokens,
-    calendarLastSyncedAt,
-    calendarConnected: true,
+
+  // Everything above is network I/O and can take seconds. The merge below runs
+  // against a fresh read, so work blocks created meanwhile are not overwritten.
+  const committed = await runStorageUpdate(
+    ['calendarEvents', 'calendarSyncTokens', 'dailyPlans'],
+    (current) => {
+      let calendarEvents = current.calendarEvents || [];
+      const calendarSyncTokens = { ...(current.calendarSyncTokens || {}) };
+      let dailyPlans = current.dailyPlans || {};
+      for (const result of results) {
+        calendarEvents = mergeCalendarEventsIntoCache(
+          calendarEvents,
+          result.calendar.id,
+          result.changedEvents,
+          result.fullResync
+        );
+        if (result.nextSyncToken) calendarSyncTokens[result.calendar.id] = result.nextSyncToken;
+        dailyPlans = applyCalendarChangesToPlans(dailyPlans, result.changedEvents, result.calendar.id);
+      }
+      return {
+        calendarEvents: pruneCalendarEvents(calendarEvents),
+        calendarSyncTokens,
+        dailyPlans,
+        calendarLastSyncedAt,
+        calendarConnected: true,
+        calendarAccount
+      };
+    }
+  );
+
+  return {
+    calendarEvents: committed.calendarEvents,
+    calendarList: data.calendarList,
     calendarAccount,
-    dailyPlans
-  });
-  return { calendarEvents, calendarList: data.calendarList, calendarAccount, calendarLastSyncedAt };
+    calendarLastSyncedAt
+  };
 }
 
-async function syncOneCalendar(calendar, token, allEvents, syncToken, retrying = false) {
+async function syncOneCalendar(calendar, token, syncToken, retrying = false) {
   const changedEvents = [];
-  const eventMap = new Map(allEvents
-    .filter((event) => event.calendarId === calendar.id)
-    .map((event) => [event.id, event]));
   let pageToken = '';
   let nextSyncToken = syncToken || '';
 
@@ -977,33 +999,40 @@ async function syncOneCalendar(calendar, token, allEvents, syncToken, retrying =
       );
     } catch (error) {
       if (error.status === 410 && syncToken && !retrying) {
-        return syncOneCalendar(calendar, token, allEvents.filter((event) => event.calendarId !== calendar.id), null, true);
+        const retried = await syncOneCalendar(calendar, token, null, true);
+        return { ...retried, fullResync: true };
       }
       throw error;
     }
     for (const rawEvent of body.items || []) {
-      const event = normalizeCalendarEvent({
+      changedEvents.push(normalizeCalendarEvent({
         ...rawEvent,
         calendarId: calendar.id,
         calendarName: calendar.name,
         calendarColor: calendar.backgroundColor
-      });
-      changedEvents.push(event);
-      if (event.status === 'cancelled') eventMap.delete(event.id);
-      else eventMap.set(event.id, event);
+      }));
     }
     pageToken = body.nextPageToken || '';
     nextSyncToken = body.nextSyncToken || nextSyncToken;
   } while (pageToken);
 
-  return {
-    calendarEvents: [
-      ...allEvents.filter((event) => event.calendarId !== calendar.id),
-      ...eventMap.values()
-    ],
-    changedEvents,
-    nextSyncToken
-  };
+  return { changedEvents, nextSyncToken, fullResync: false };
+}
+
+// Pure: runs at commit time against a fresh cache read, never against the snapshot
+// that was live when the network requests started.
+function mergeCalendarEventsIntoCache(cachedEvents, calendarId, changedEvents, fullResync) {
+  const others = (cachedEvents || []).filter((event) => event.calendarId !== calendarId);
+  const eventMap = fullResync
+    ? new Map()
+    : new Map((cachedEvents || [])
+        .filter((event) => event.calendarId === calendarId)
+        .map((event) => [event.id, event]));
+  for (const event of changedEvents || []) {
+    if (event.status === 'cancelled') eventMap.delete(event.id);
+    else eventMap.set(event.id, event);
+  }
+  return [...others, ...eventMap.values()];
 }
 
 async function disconnectCalendar() {
@@ -1277,31 +1306,85 @@ async function upsertCachedCalendarEvent(rawEvent, calendarId) {
   await chrome.storage.local.set({ calendarEvents });
 }
 
-function applyCalendarChangesToPlans(dailyPlans, changedEvents) {
-  let nextPlans = { ...(dailyPlans || {}) };
-  for (const event of changedEvents || []) {
-    if (!event.focusDeskBlockId) continue;
-    let sourceDate = null;
-    let sourceBlock = null;
-    for (const [dateKey, blocks] of Object.entries(nextPlans)) {
-      const found = (blocks || []).find((block) => block.id === event.focusDeskBlockId);
-      if (found) {
-        sourceDate = dateKey;
-        sourceBlock = found;
-        break;
+// Match by the (calendarId, eventId) pair first: a block already linked to one
+// calendar must not be re-pointed by a copy of the event living in another. The
+// focusDeskBlockId fallback only applies to blocks that are unlinked or already
+// point at this calendar. Matching on the event id is also what makes cancelled
+// events reachable at all - Google strips extendedProperties from deletions.
+function findBlockForCalendarEvent(dailyPlans, event, calendarId) {
+  const entries = Object.entries(dailyPlans || {});
+  for (const [dateKey, blocks] of entries) {
+    for (const block of blocks || []) {
+      const calendar = block.calendar || {};
+      if (calendar.eventId === event.id && calendar.calendarId === calendarId) {
+        return { dateKey, block };
       }
     }
-    if (!sourceBlock) continue;
+  }
+  if (!event.focusDeskBlockId) return null;
+  for (const [dateKey, blocks] of entries) {
+    for (const block of blocks || []) {
+      if (block.id !== event.focusDeskBlockId) continue;
+      const calendar = block.calendar || {};
+      if (calendar.eventId && calendar.eventId !== event.id) continue;
+      if (calendar.calendarId && calendar.calendarId !== calendarId) continue;
+      return { dateKey, block };
+    }
+  }
+  return null;
+}
+
+function applyCalendarChangesToPlans(dailyPlans, changedEvents, calendarId) {
+  let nextPlans = { ...(dailyPlans || {}) };
+  for (const event of changedEvents || []) {
+    const match = findBlockForCalendarEvent(nextPlans, event, calendarId);
+    if (!match) continue;
+    const sourceDate = match.dateKey;
+    const sourceBlock = match.block;
+    const calendar = sourceBlock.calendar || {};
+
     if (event.status === 'cancelled') {
       nextPlans = updateBlockInPlans(nextPlans, sourceDate, sourceBlock.id, (block) => ({
         ...block,
-        status: 'cancelled',
+        status: block.status === 'completed' ? block.status : 'cancelled',
         calendar: normalizeBlockCalendar({ ...block.calendar, syncState: 'synced', lastSyncedAt: Date.now() }),
         updatedAt: Date.now()
       }));
       continue;
     }
+
     if (!event.start || String(event.start).length === 10) continue;
+
+    // Our own push echoing back: the etag we stored is the one Google returned.
+    if (event.etag && event.etag === calendar.etag) continue;
+
+    // A local edit that has not reached Google yet must not be silently reverted.
+    // The UI already renders syncState, so a conflict is visible rather than lost.
+    if (calendar.syncState === 'pending' || calendar.syncState === 'conflict') {
+      nextPlans = updateBlockInPlans(nextPlans, sourceDate, sourceBlock.id, (block) => ({
+        ...block,
+        calendar: normalizeBlockCalendar({
+          ...block.calendar,
+          syncState: 'conflict',
+          lastError: 'Google changed this event while a local edit was still waiting to sync.'
+        }),
+        updatedAt: Date.now()
+      }));
+      continue;
+    }
+
+    // Backstop for blocks linked before the etag was recorded. Clock-skew prone,
+    // which is why the etag comparison above runs first.
+    const remoteUpdatedAt = Date.parse(event.updated) || 0;
+    const localUpdatedAt = Number(sourceBlock.updatedAt) || 0;
+    if (remoteUpdatedAt && remoteUpdatedAt <= localUpdatedAt) {
+      nextPlans = updateBlockInPlans(nextPlans, sourceDate, sourceBlock.id, (block) => ({
+        ...block,
+        calendar: normalizeBlockCalendar({ ...block.calendar, etag: event.etag })
+      }));
+      continue;
+    }
+
     const start = new Date(event.start);
     const end = event.end ? new Date(event.end) : new Date(start.getTime() + sourceBlock.duration * 60000);
     const targetDate = localDateKey(start);
@@ -1312,7 +1395,7 @@ function applyCalendarChangesToPlans(dailyPlans, changedEvents) {
       duration: Math.max(5, Math.round((end.getTime() - start.getTime()) / 60000)),
       calendar: {
         ...sourceBlock.calendar,
-        calendarId: event.calendarId,
+        calendarId,
         eventId: event.id,
         etag: event.etag,
         htmlLink: event.htmlLink,
@@ -1379,6 +1462,36 @@ function hasGoogleOAuthClientId() {
 
 function isCalendarSetupError(error) {
   return Boolean(error && error.message === 'Google Calendar needs a valid OAuth client ID in manifest.json.');
+}
+
+// Serializes read-modify-write against chrome.storage.local inside this worker, so a
+// slow caller cannot write back a snapshot it read before another write landed.
+// The updater MUST be synchronous: any await inside it reopens the race it closes.
+// The updater must not call runStorageUpdate itself - the queue would deadlock.
+function runStorageUpdate(keys, updater) {
+  const nextUpdate = storageUpdateQueue
+    .catch(() => {})
+    .then(() => applyStorageUpdate(keys, updater));
+  storageUpdateQueue = nextUpdate;
+  return nextUpdate;
+}
+
+async function applyStorageUpdate(keys, updater) {
+  const current = await chrome.storage.local.get(keys);
+  const patch = updater(current) || {};
+  const changed = changedStorageKeys(current, patch);
+  if (Object.keys(changed).length) await chrome.storage.local.set(changed);
+  return patch;
+}
+
+// Writing a key back unchanged still fires storage.onChanged, which broadcasts a
+// stateUpdate and re-renders every open page. Only write what actually differs.
+function changedStorageKeys(current, next) {
+  const changed = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (JSON.stringify(current[key]) !== JSON.stringify(value)) changed[key] = value;
+  }
+  return changed;
 }
 
 function updateBlockRule() {
@@ -1449,6 +1562,19 @@ function removeExpiredAccess(temporaryAccess) {
   return Object.fromEntries(
     Object.entries(temporaryAccess || {}).filter(([, expiresAt]) => expiresAt > Date.now())
   );
+}
+
+// A pass granted in one session must not survive into the next one - that is the
+// whole promise of the focus gate. getAll() rather than deriving names from the
+// stored map also sweeps up alarms whose entry was already dropped.
+async function clearTemporaryAccess() {
+  const alarms = await chrome.alarms.getAll();
+  await Promise.all(alarms
+    .filter((alarm) => alarm.name.startsWith(TEMP_ACCESS_PREFIX))
+    .map((alarm) => chrome.alarms.clear(alarm.name)));
+  await runStorageUpdate(['temporaryAccess'], (current) => (
+    Object.keys(current.temporaryAccess || {}).length ? { temporaryAccess: {} } : {}
+  ));
 }
 
 async function restoreTemporaryAccessAlarms(temporaryAccess) {
@@ -1611,6 +1737,26 @@ async function reconcileDueStandaloneReminders() {
       scheduledTime: standaloneReminderAt(reminder)
     });
   }
+}
+
+async function completeTask(taskId) {
+  await ensureInitialized();
+  const id = cleanText(taskId, 200);
+  if (!id) throw new Error('Choose the task you completed.');
+  let found = false;
+  const patch = await runStorageUpdate(['tasks'], (current) => {
+    const now = Date.now();
+    const tasks = (current.tasks || []).map((task) => {
+      if (task.id !== id) return task;
+      found = true;
+      // status must be set too: normalizeTask derives completed from status, so
+      // writing completed alone silently reopens the task on the next worker start.
+      return normalizeTask({ ...task, status: 'done', completed: true, completedAt: now, updatedAt: now }, 0);
+    });
+    return found ? { tasks } : {};
+  });
+  if (!found) throw new Error('That task no longer exists.');
+  return { task: (patch.tasks || []).find((task) => task.id === id) || null };
 }
 
 async function completeStandaloneReminder(reminderId) {
@@ -2178,6 +2324,30 @@ function normalizeCalendarListEntry(calendar, calendarIndex) {
     primary: Boolean(calendar && calendar.primary),
     selected: calendar && typeof calendar.selected === 'boolean' ? calendar.selected : true
   };
+}
+
+// The cache only ever dropped cancelled events, so it grew without bound against
+// the 10 MB chrome.storage.local cap. The horizon is deliberately wider than the
+// initial fetch window (+180 days) so pruning can never drop a future event that
+// incremental sync will not send again.
+const CALENDAR_EVENT_RETENTION_DAYS = 60;
+const CALENDAR_EVENT_HORIZON_DAYS = 400;
+const CALENDAR_EVENT_LIMIT = 5000;
+
+function pruneCalendarEvents(events) {
+  const now = Date.now();
+  const minTime = now - CALENDAR_EVENT_RETENTION_DAYS * 86400000;
+  const maxTime = now + CALENDAR_EVENT_HORIZON_DAYS * 86400000;
+  const kept = (events || []).filter((event) => {
+    const time = Date.parse(event.end || event.start);
+    if (!Number.isFinite(time)) return true;
+    return time >= minTime && time <= maxTime;
+  });
+  if (kept.length <= CALENDAR_EVENT_LIMIT) return kept;
+  return kept
+    .slice()
+    .sort((a, b) => (Date.parse(b.start) || 0) - (Date.parse(a.start) || 0))
+    .slice(0, CALENDAR_EVENT_LIMIT);
 }
 
 function normalizeCalendarEvent(event, eventIndex) {

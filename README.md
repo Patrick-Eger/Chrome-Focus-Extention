@@ -24,6 +24,8 @@ that block every website outside the active workspace allowlist.
 - Random or personal quotes with either online photos or a personal background-image library
 - Workspace-specific website allowlists
 - Workspace favorites with quick capture from the extension popup
+- Global search across projects, tasks, notes, flashcards, Inbox items, reminders,
+  work blocks, saved links, and workspaces, opening each result where it lives
 - Universal Inbox for ideas, tasks, notes, and links with editing, filters,
   processing history, restore, and conversion into project work
 - Chrome side panel with current-page capture, direct project routing, recent
@@ -240,6 +242,26 @@ One panel is open at a time and Escape closes them. Every element has its own
 switch under **Settings > Moment screen**, so the screen can be reduced to just a
 clock. Momentum's weather corner is not implemented; it needs a third-party
 weather service and a location, which the extension does not have.
+
+## Search
+
+**Search** sits in the top bar on every view and opens with `Command+K`
+(`Ctrl+K` on Windows/Linux) or `/`. It looks through projects and their groups,
+tasks including labels and subtasks, note titles and bodies, flashcards, Inbox
+items, reminders, work blocks on every planned day, saved links and tabs, and
+workspaces.
+
+Titles outrank body text, a match at the start of a word outranks one inside it,
+and recently touched items edge ahead of older ones. Completed, archived, and past
+items still appear but are dimmed and ranked below open ones. Arrow keys move,
+Enter opens, Escape closes.
+
+Opening a result takes you to where the item actually lives - the task drawer, the
+note editor, the work-block or reminder editor, the project, or the Inbox row -
+and sets the surrounding view up first, so an archived project or a completed task
+is not hidden behind a filter when you land. Saved links open in a new tab. If an
+item was deleted in another tab in the meantime, Focus Desk says so instead of
+opening an empty editor.
 
 The **Appearance** settings offer System, Light, and Dark display modes. System
 follows the operating-system preference; the selected mode and accent palette apply

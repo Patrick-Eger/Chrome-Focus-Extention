@@ -164,8 +164,13 @@ function renderTaskGate() {
     event.preventDefault();
     const selected = $('input[name="gateTask"]:checked');
     if (!selected) return showError('Choose the task you completed.');
-    const tasks = state.tasks.map((task) => task.id === selected.value ? { ...task, completed: true } : task);
-    await chrome.storage.local.set({ tasks });
+    // The worker owns this write: it sets status alongside completed, and touches
+    // only the one task instead of rewriting the whole array from a page-load snapshot.
+    try {
+      await send('completeTask', { id: selected.value });
+    } catch (error) {
+      return showError(error.message);
+    }
     await unlock();
   });
 }

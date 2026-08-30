@@ -42,6 +42,12 @@ let dashboardPhotoStatus = '';
 let pendingWidgetFocus = null;
 let dashboardObjectUrl = null;
 let dashboardBackgroundLoaded = false;
+let settingsFormDirty = false;
+let searchOpen = false;
+let searchResults = [];
+let searchActiveIndex = 0;
+let searchEntries = null;
+let searchReturnFocus = null;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -71,6 +77,28 @@ const DASHBOARD_WIDGET_META = {
   tasks: { title: 'Next tasks', description: 'The open tasks waiting for attention.' },
   upcoming: { title: 'Upcoming', description: 'The next calendar events and reminders.' },
   recall: { title: 'Obsidian recall', description: 'A random tagged note from the vault.' }
+};
+
+const SEARCH_RESULT_LIMIT = 40;
+const SEARCH_MIN_QUERY = 2;
+const SEARCH_SNIPPET_RADIUS = 60;
+const SEARCH_TYPE_LABELS = {
+  project: 'Project',
+  group: 'Group',
+  task: 'Task',
+  note: 'Note',
+  flashcard: 'Flashcard',
+  inbox: 'Inbox',
+  reminder: 'Reminder',
+  block: 'Work block',
+  link: 'Link',
+  workspace: 'Workspace'
+};
+// Tie-breaking only: the spread is small enough that it can never lift a body
+// match (30) above a title match (60).
+const SEARCH_TYPE_WEIGHT = {
+  project: 6, task: 5, note: 4, block: 3, reminder: 3,
+  inbox: 2, group: 2, workspace: 1, link: 1, flashcard: 1
 };
 
 const OBSIDIAN_DATABASE = 'focus-desk-integrations';
@@ -105,6 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   selectedPlannerDate = todayKey();
   selectedCalendarDate = todayKey();
   bindNavigation();
+  bindSearch();
   bindFocus();
   bindPlanning();
   bindInbox();
@@ -170,7 +199,15 @@ async function loadState() {
 }
 
 async function save(patch) {
-  await chrome.storage.local.set(patch);
+  // storage.local is capped at 10 MB and this used to fail silently. Assign to the
+  // in-memory state only after the write lands, so it never claims a success that
+  // did not happen, and rethrow so callers cannot print "saved" over a failure.
+  try {
+    await chrome.storage.local.set(patch);
+  } catch (error) {
+    showToast(`Could not save: ${error.message}`);
+    throw error;
+  }
   Object.assign(state, patch);
   render();
 }
@@ -184,6 +221,7 @@ function render() {
   state.obsidianSyncRecords = state.obsidianSyncRecords && typeof state.obsidianSyncRecords === 'object'
     ? state.obsidianSyncRecords
     : {};
+  searchEntries = null;
   applyPalette();
   applyDashboardLayout();
   applyDashboardBackground();
@@ -203,6 +241,7 @@ function render() {
   $('#projectCount').textContent = state.projects.filter((project) => !project.archived).length;
   $('#taskCount').textContent = state.tasks.filter((task) => !task.completed).length;
   $('#noteCount').textContent = state.notes.length;
+  if (searchOpen) renderSearchResults();
 }
 
 function bindNavigation() {
@@ -227,6 +266,498 @@ function showView(name) {
   $('#viewTitle').textContent = view ? view.dataset.title : 'Focus Desk';
   if (name === 'projects') renderProjects();
   if (name === 'today' && obsidianRecallNotes.length) chooseRandomObsidianRecall();
+}
+
+function searchKey(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function makeSearchEntry({ type, id, title, body = '', context = '', meta = '', timestamp = 0, dormant = false, payload = {} }) {
+  return {
+    type,
+    id,
+    title: String(title || ''),
+    context,
+    meta,
+    timestamp: Number(timestamp) || 0,
+    dormant: Boolean(dormant),
+    payload,
+    titleKey: searchKey(title),
+    bodyKey: searchKey(body),
+    body: String(body || '')
+  };
+}
+
+// Built once per state change and cached; render() drops the cache.
+function searchEntriesForState() {
+  if (searchEntries) return searchEntries;
+  const entries = [];
+  const workspaceName = (id) => (getWorkspace(id) || {}).name || '';
+
+  for (const project of state.projects || []) {
+    entries.push(makeSearchEntry({
+      type: 'project',
+      id: project.id,
+      title: project.name,
+      body: [project.outcome, project.description, ...(project.links || []).map((link) => `${link.title || ''} ${link.url || ''}`)].join(' '),
+      context: [workspaceName(project.workspaceId), titleCase(project.status || ''), project.archived ? 'Archived' : '']
+        .filter(Boolean).join(' · '),
+      meta: project.dueDate ? formatShortDate(project.dueDate) : '',
+      timestamp: project.updatedAt || project.createdAt,
+      dormant: Boolean(project.archived),
+      payload: { projectId: project.id }
+    }));
+  }
+
+  for (const group of state.projectGroups || []) {
+    const project = getProject(group.projectId);
+    entries.push(makeSearchEntry({
+      type: 'group',
+      id: group.id,
+      title: group.name,
+      context: project ? project.name : '',
+      timestamp: group.updatedAt || group.createdAt,
+      payload: { groupId: group.id, projectId: group.projectId }
+    }));
+  }
+
+  for (const task of state.tasks || []) {
+    const project = getProject(task.projectId);
+    entries.push(makeSearchEntry({
+      type: 'task',
+      id: task.id,
+      title: task.title,
+      body: [task.description, (task.labels || []).join(' '), (task.subtasks || []).map((sub) => sub.title).join(' ')].join(' '),
+      context: [project ? project.name : workspaceName(task.workspaceId), TASK_STATUS_LABELS[normalizedTaskStatus(task)] || '']
+        .filter(Boolean).join(' · '),
+      meta: task.plannedDate ? formatShortDate(task.plannedDate) : task.dueDate ? formatShortDate(task.dueDate) : '',
+      timestamp: task.updatedAt || task.createdAt,
+      dormant: Boolean(task.completed),
+      payload: { taskId: task.id, projectId: task.projectId, completed: Boolean(task.completed) }
+    }));
+  }
+
+  for (const note of state.notes || []) {
+    const project = getProject(note.projectId);
+    entries.push(makeSearchEntry({
+      type: 'note',
+      id: note.id,
+      title: note.title,
+      body: note.body,
+      context: project ? project.name : workspaceName(note.workspaceId),
+      meta: note.updatedAt ? formatShortDate(dateKeyFromDate(new Date(note.updatedAt))) : '',
+      timestamp: note.updatedAt || note.createdAt,
+      payload: { noteId: note.id }
+    }));
+  }
+
+  for (const card of state.flashcards || []) {
+    const note = (state.notes || []).find((item) => item.id === card.noteId);
+    entries.push(makeSearchEntry({
+      type: 'flashcard',
+      id: card.id,
+      title: card.question,
+      body: card.answer,
+      context: note ? note.title : '',
+      timestamp: card.createdAt,
+      payload: { noteId: card.noteId }
+    }));
+  }
+
+  for (const item of state.inboxItems || []) {
+    entries.push(makeSearchEntry({
+      type: 'inbox',
+      id: item.id,
+      title: item.title,
+      body: [item.body, item.sourceTitle, item.url].join(' '),
+      context: [titleCase(item.type || ''), workspaceName(item.workspaceId), item.status !== 'open' ? 'Processed' : '']
+        .filter(Boolean).join(' · '),
+      meta: item.createdAt ? formatShortDate(dateKeyFromDate(new Date(item.createdAt))) : '',
+      timestamp: item.updatedAt || item.createdAt,
+      dormant: item.status !== 'open',
+      payload: { inboxId: item.id, status: item.status }
+    }));
+  }
+
+  for (const reminder of state.reminders || []) {
+    entries.push(makeSearchEntry({
+      type: 'reminder',
+      id: reminder.id,
+      title: reminder.title,
+      body: reminder.notes,
+      context: reminder.status === 'done' ? 'Done' : '',
+      meta: `${formatShortDate(reminder.date)} ${reminder.time || ''}`.trim(),
+      timestamp: reminderTimestamp(reminder),
+      dormant: reminder.status === 'done',
+      payload: { reminderId: reminder.id, date: reminder.date }
+    }));
+  }
+
+  const today = todayKey();
+  for (const [dateKey, blocks] of Object.entries(state.dailyPlans || {})) {
+    for (const block of blocks || []) {
+      const project = getProject(block.projectId);
+      entries.push(makeSearchEntry({
+        type: 'block',
+        id: `${dateKey}:${block.id}`,
+        title: block.title,
+        body: block.description,
+        context: [formatDayHeading(dateKey), block.time, project ? project.name : ''].filter(Boolean).join(' · '),
+        meta: `${block.duration || 0} min`,
+        timestamp: block.updatedAt || block.createdAt,
+        dormant: dateKey < today || ['completed', 'skipped', 'cancelled'].includes(block.status),
+        payload: { blockId: block.id, dateKey }
+      }));
+    }
+  }
+
+  for (const workspace of state.workspaces || []) {
+    for (const [kind, list] of [['Favorite', workspace.favorites], ['Saved tab', workspace.tabs]]) {
+      for (const link of list || []) {
+        if (!link || !link.url) continue;
+        entries.push(makeSearchEntry({
+          type: 'link',
+          id: `${workspace.id}:${kind}:${link.id || link.url}`,
+          title: link.title || hostnameFromUrl(link.url),
+          body: link.url,
+          context: `${kind} · ${workspace.name}`,
+          meta: hostnameFromUrl(link.url),
+          payload: { url: link.url }
+        }));
+      }
+    }
+    entries.push(makeSearchEntry({
+      type: 'workspace',
+      id: workspace.id,
+      title: workspace.name,
+      body: (workspace.domains || []).join(' '),
+      context: `${(workspace.favorites || []).length} favorites · ${(workspace.domains || []).length} sites`,
+      timestamp: workspace.updatedAt || workspace.createdAt,
+      payload: { workspaceId: workspace.id }
+    }));
+  }
+
+  searchEntries = entries;
+  return entries;
+}
+
+function isWordStart(haystack, index) {
+  return index === 0 || /[^a-z0-9]/.test(haystack[index - 1]);
+}
+
+function scoreSearchTerm(entry, term) {
+  const titleIndex = entry.titleKey.indexOf(term);
+  if (titleIndex === 0) return 100;
+  if (titleIndex > 0) return isWordStart(entry.titleKey, titleIndex) ? 80 : 60;
+  const bodyIndex = entry.bodyKey.indexOf(term);
+  if (bodyIndex < 0) return 0;
+  return isWordStart(entry.bodyKey, bodyIndex) ? 35 : 30;
+}
+
+function searchRecencyBonus(timestamp) {
+  if (!timestamp) return 0;
+  const age = Date.now() - timestamp;
+  if (age < 86400000) return 8;
+  if (age < 604800000) return 5;
+  if (age < 2592000000) return 2;
+  return 0;
+}
+
+function scoreSearchEntry(entry, terms) {
+  let total = 0;
+  for (const term of terms) {
+    const score = scoreSearchTerm(entry, term);
+    if (!score) return 0;
+    total += score;
+  }
+  // Average, so a two-term query cannot outscore a one-term query by accumulation.
+  let score = total / terms.length;
+  score += SEARCH_TYPE_WEIGHT[entry.type] || 0;
+  score += searchRecencyBonus(entry.timestamp);
+  if (entry.dormant) score -= 25;
+  return score;
+}
+
+function searchState(query) {
+  const terms = searchKey(query).split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const scored = [];
+  for (const entry of searchEntriesForState()) {
+    const score = scoreSearchEntry(entry, terms);
+    if (score > 0) scored.push({ entry, score, terms });
+  }
+  scored.sort((a, b) => b.score - a.score
+    || b.entry.timestamp - a.entry.timestamp
+    || a.entry.title.localeCompare(b.entry.title));
+  return scored.slice(0, SEARCH_RESULT_LIMIT);
+}
+
+function searchRecentEntries() {
+  return searchEntriesForState()
+    .filter((entry) => !entry.dormant && entry.timestamp)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 8)
+    .map((entry) => ({ entry, score: 0, terms: [] }));
+}
+
+function searchSnippet(text, terms) {
+  const key = searchKey(text);
+  let index = -1;
+  for (const term of terms) {
+    const found = key.indexOf(term);
+    if (found >= 0 && (index < 0 || found < index)) index = found;
+  }
+  if (index < 0) return '';
+  const start = Math.max(0, index - SEARCH_SNIPPET_RADIUS);
+  const end = Math.min(text.length, index + SEARCH_SNIPPET_RADIUS);
+  return `${start > 0 ? '…' : ''}${text.slice(start, end).replace(/\s+/g, ' ').trim()}${end < text.length ? '…' : ''}`;
+}
+
+// Split on the raw index first, then escape each fragment. Escaping first would
+// turn & into &amp; and shift every match index.
+function highlightSearchMatch(text, terms) {
+  const source = String(text || '');
+  const key = searchKey(source);
+  let index = -1;
+  let length = 0;
+  for (const term of terms) {
+    const found = key.indexOf(term);
+    if (found >= 0 && (index < 0 || found < index)) {
+      index = found;
+      length = term.length;
+    }
+  }
+  if (index < 0) return escapeHtml(source);
+  return `${escapeHtml(source.slice(0, index))}<mark>${escapeHtml(source.slice(index, index + length))}</mark>${escapeHtml(source.slice(index + length))}`;
+}
+
+function searchResultRow(result, index) {
+  const { entry, terms } = result;
+  const snippet = terms.length && !terms.some((term) => entry.titleKey.includes(term))
+    ? searchSnippet(entry.body, terms)
+    : '';
+  return `
+    <button class="search-result${index === searchActiveIndex ? ' active' : ''}${entry.dormant ? ' dormant' : ''}"
+            type="button" role="option" id="searchResult-${index}" data-search-index="${index}"
+            aria-selected="${index === searchActiveIndex}">
+      <span class="search-result-badge">${escapeHtml(SEARCH_TYPE_LABELS[entry.type] || entry.type)}</span>
+      <span class="search-result-main">
+        <span class="search-result-title">${highlightSearchMatch(entry.title, terms)}</span>
+        ${entry.context ? `<span class="search-result-context">${escapeHtml(entry.context)}</span>` : ''}
+        ${snippet ? `<span class="search-result-snippet">${highlightSearchMatch(snippet, terms)}</span>` : ''}
+      </span>
+      <span class="search-result-meta">${escapeHtml(entry.meta || '')}</span>
+    </button>`;
+}
+
+function renderSearchResults() {
+  const query = $('#searchInput').value.trim();
+  const showingRecent = query.length < SEARCH_MIN_QUERY;
+  searchResults = showingRecent ? searchRecentEntries() : searchState(query);
+  if (searchActiveIndex >= searchResults.length) searchActiveIndex = 0;
+
+  const list = $('#searchResults');
+  if (!searchResults.length) {
+    list.innerHTML = emptyState(showingRecent ? 'Nothing here yet.' : 'Nothing matches that search.');
+    $('#searchCount').textContent = '';
+  } else {
+    list.innerHTML = (showingRecent ? '<p class="search-group-label">Recent</p>' : '')
+      + searchResults.map((result, index) => searchResultRow(result, index)).join('');
+    $('#searchCount').textContent = showingRecent
+      ? ''
+      : `${searchResults.length}${searchResults.length === SEARCH_RESULT_LIMIT ? '+' : ''} result${searchResults.length === 1 ? '' : 's'}`;
+  }
+  const input = $('#searchInput');
+  input.setAttribute('aria-expanded', String(searchResults.length > 0));
+  input.setAttribute('aria-activedescendant', searchResults.length ? `searchResult-${searchActiveIndex}` : '');
+}
+
+function moveSearchSelection(delta) {
+  if (!searchResults.length) return;
+  searchActiveIndex = (searchActiveIndex + delta + searchResults.length) % searchResults.length;
+  renderSearchResults();
+  $(`#searchResult-${searchActiveIndex}`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function isTypingTarget(target) {
+  return Boolean(target && target.closest && target.closest('input, textarea, select, [contenteditable="true"], .CodeMirror'));
+}
+
+function searchShortcutLabel() {
+  return navigator.platform && /mac/i.test(navigator.platform) ? '\u2318K' : 'Ctrl K';
+}
+
+function openSearch(initialQuery = '') {
+  if (!state || searchOpen) return;
+  if (document.body.classList.contains('modal-open') || document.body.classList.contains('drawer-open')) return;
+  searchReturnFocus = document.activeElement;
+  searchOpen = true;
+  searchActiveIndex = 0;
+  $('#searchInput').value = initialQuery;
+  $('#searchBackdrop').classList.remove('hidden');
+  $('#searchPalette').classList.remove('hidden');
+  $('#openSearch').setAttribute('aria-expanded', 'true');
+  document.body.classList.add('modal-open');
+  renderSearchResults();
+  setTimeout(() => $('#searchInput').focus(), 0);
+}
+
+function closeSearch(restoreFocus = true) {
+  if (!searchOpen) return;
+  searchOpen = false;
+  $('#searchBackdrop').classList.add('hidden');
+  $('#searchPalette').classList.add('hidden');
+  $('#openSearch').setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('modal-open');
+  if (restoreFocus && searchReturnFocus && document.contains(searchReturnFocus)) searchReturnFocus.focus();
+  searchReturnFocus = null;
+}
+
+async function activateSearchResult(result) {
+  if (!result) return;
+  const { entry } = result;
+  const payload = entry.payload || {};
+  // The corpus can be one stateUpdate stale, so re-look-up before navigating.
+  const missing = () => {
+    showToast('That item is no longer here.');
+    closeSearch();
+  };
+
+  // Moment mode hides the app shell entirely; results would be a dead end there.
+  if (state.settings.newTabMode === 'moment') await setNewTabMode('dashboard');
+
+  switch (entry.type) {
+    case 'project':
+    case 'group': {
+      const projectId = payload.projectId;
+      const project = getProject(projectId);
+      if (!project) return missing();
+      selectedProjectId = project.id;
+      projectIndexMode = project.archived ? 'archived' : 'active';
+      if (entry.type === 'group' && getProjectGroup(payload.groupId)) {
+        projectViewMode = 'board';
+        projectGroupFilter = payload.groupId;
+      } else {
+        projectViewMode = 'overview';
+        projectGroupFilter = 'all';
+      }
+      showView('projects');
+      break;
+    }
+    case 'task': {
+      const task = state.tasks.find((item) => item.id === payload.taskId);
+      if (!task) return missing();
+      if (task.completed) $('#taskFilter').value = 'all';
+      showView('tasks');
+      renderTasks();
+      openTaskDrawer(task.id, task.projectId);
+      break;
+    }
+    case 'note':
+    case 'flashcard': {
+      const noteId = entry.type === 'note' ? payload.noteId : payload.noteId;
+      const note = state.notes.find((item) => item.id === noteId);
+      if (!note) return missing();
+      await flushPendingNoteSave();
+      $('#noteSearch').value = '';
+      selectedNoteId = note.id;
+      showView('notes');
+      openSelectedNote();
+      if (entry.type === 'flashcard') showToast('Opened the note this flashcard came from.');
+      break;
+    }
+    case 'inbox': {
+      const item = state.inboxItems.find((entryItem) => entryItem.id === payload.inboxId);
+      if (!item) return missing();
+      inboxStatusFilter = item.status;
+      inboxTypeFilter = 'all';
+      openInboxItems.add(item.id);
+      showView('inbox');
+      renderInbox();
+      $(`[data-inbox-item="${item.id}"]`)?.scrollIntoView({ block: 'center' });
+      break;
+    }
+    case 'reminder': {
+      const reminder = getReminder(payload.reminderId);
+      if (!reminder) return missing();
+      selectedPlannerDate = reminder.date;
+      showView('today');
+      renderDayRail();
+      openReminderModal({ reminderId: reminder.id });
+      break;
+    }
+    case 'block': {
+      const block = getWorkBlock(payload.dateKey, payload.blockId);
+      if (!block) return missing();
+      selectedPlannerDate = payload.dateKey;
+      showView('today');
+      renderDayRail();
+      openWorkBlockModal({ dateKey: payload.dateKey, blockId: payload.blockId });
+      break;
+    }
+    case 'link': {
+      const url = normalizeHttpUrl(payload.url);
+      if (!url) return missing();
+      await chrome.tabs.create({ url });
+      break;
+    }
+    case 'workspace':
+      showView('workspaces');
+      break;
+    default:
+      break;
+  }
+  closeSearch(false);
+}
+
+function bindSearch() {
+  $('#searchShortcutHint').textContent = searchShortcutLabel();
+  $('#openSearch').addEventListener('click', () => openSearch());
+  $('#closeSearch').addEventListener('click', () => closeSearch());
+  $('#searchBackdrop').addEventListener('click', () => closeSearch());
+  $('#searchInput').addEventListener('input', () => {
+    searchActiveIndex = 0;
+    renderSearchResults();
+  });
+
+  $('#searchResults').addEventListener('click', (event) => {
+    const row = event.target.closest('[data-search-index]');
+    if (!row) return;
+    activateSearchResult(searchResults[Number(row.dataset.searchIndex)]).catch((error) => showToast(error.message));
+  });
+
+  $('#searchPalette').addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveSearchSelection(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSearchSelection(-1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      activateSearchResult(searchResults[searchActiveIndex]).catch((error) => showToast(error.message));
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (searchOpen && event.key === 'Escape') {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+    // EasyMDE binds Cmd-K to drawLink and calls preventDefault but not
+    // stopPropagation, so without this the editor inserts a link AND we open.
+    if (event.defaultPrevented || event.altKey || searchOpen) return;
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      openSearch();
+      return;
+    }
+    if (event.key === '/' && !event.metaKey && !event.ctrlKey && !isTypingTarget(event.target)) {
+      event.preventDefault();
+      openSearch();
+    }
+  });
 }
 
 function bindFocus() {
@@ -3081,7 +3612,11 @@ function bindObsidianRecall() {
       obsidianExportFolder: normalizeObsidianExportFolder($('#obsidianExportFolder').value),
       obsidianIncludeArchivedProjects: $('#obsidianIncludeArchivedProjects').checked
     };
-    await chrome.storage.local.set({ settings });
+    try {
+      await chrome.storage.local.set({ settings });
+    } catch (error) {
+      return showToast(`Could not save: ${error.message}`);
+    }
     state.settings = settings;
     const projects = state.projects.filter((project) => (
       settings.obsidianIncludeArchivedProjects || !project.archived
@@ -3230,7 +3765,15 @@ async function syncProjectsToObsidian(projectIds, {
       }
     }
 
-    await chrome.storage.local.set({ obsidianSyncRecords: records });
+    try {
+      await chrome.storage.local.set({ obsidianSyncRecords: records });
+    } catch (error) {
+      obsidianSyncError = true;
+      obsidianSyncMessage = `Could not record the export: ${error.message}`;
+      obsidianSyncInProgress = false;
+      renderObsidianSettings();
+      return;
+    }
     state.obsidianSyncRecords = records;
     if (failures.length) {
       const conflictCount = failures.filter(({ error }) => error.name === 'ObsidianSyncConflictError').length;
@@ -3700,6 +4243,8 @@ async function removeObsidianVaultHandle() {
 
 function bindSettings() {
   bindDashboardLayoutSettings();
+  $('#settingsView').addEventListener('input', markSettingsFormDirty);
+  $('#settingsView').addEventListener('change', markSettingsFormDirty);
   $('#momentOverlay').addEventListener('input', (event) => {
     $('#momentOverlayValue').textContent = `${event.target.value}%`;
   });
@@ -3785,7 +4330,13 @@ function bindSettings() {
       $('#momentQuoteAuthor').textContent = '';
       delete $('#momentQuote').dataset.mode;
     }
-    await save({ settings });
+    settingsFormDirty = false;
+    try {
+      await save({ settings });
+    } catch (_) {
+      settingsFormDirty = true;
+      return;
+    }
     if (obsidianVaultHandle && obsidianTagBefore !== settings.obsidianRecallTag) {
       await scanObsidianVault(false);
     }
@@ -3795,6 +4346,26 @@ function bindSettings() {
 }
 
 function renderSettings() {
+  // A stateUpdate can land at any moment (every storage write broadcasts one). Do
+  // not stamp stored values over a form the user is still editing - they would then
+  // click Save and persist the reverted values.
+  if (!settingsFormDirty) applySettingsFormValues();
+  renderDashboardWidgetList();
+  renderDashboardBackgroundSettings();
+  toggleCustomQuoteFields();
+  updateMomentImageStatus();
+  renderObsidianSettings();
+}
+
+function markSettingsFormDirty(event) {
+  // The widget list and the background controls save themselves immediately and are
+  // re-rendered afterwards, so marking them would leave the flag stuck on forever.
+  if (event.target.closest('#dashboardWidgetList, #dashboardBackgroundOptions')) return;
+  if (event.target.name === 'dashboardBackground') return;
+  settingsFormDirty = true;
+}
+
+function applySettingsFormValues() {
   const gate = $(`input[name="gateType"][value="${state.settings.gateType}"]`);
   const palette = $(`input[name="palette"][value="${state.settings.palette}"]`);
   const colorMode = $(`input[name="colorMode"][value="${state.settings.colorMode || 'system'}"]`);
@@ -3843,11 +4414,6 @@ function renderSettings() {
     $('#obsidianExportFolder').value = normalizeObsidianExportFolder(state.settings.obsidianExportFolder);
   }
   $('#obsidianIncludeArchivedProjects').checked = Boolean(state.settings.obsidianIncludeArchivedProjects);
-  renderDashboardWidgetList();
-  renderDashboardBackgroundSettings();
-  toggleCustomQuoteFields();
-  updateMomentImageStatus();
-  renderObsidianSettings();
 }
 
 function toggleCustomQuoteFields() {

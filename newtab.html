@@ -45,6 +45,11 @@
           <h1 id="viewTitle">Plan the day</h1>
         </div>
         <div class="topbar-meta">
+          <button id="openSearch" class="topbar-search" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <span class="topbar-search-icon" aria-hidden="true">&#9906;</span>
+            <span class="topbar-search-label">Search</span>
+            <kbd id="searchShortcutHint" class="topbar-search-key" aria-hidden="true">&#8984;K</kbd>
+          </button>
           <time id="headerClock">--:--</time>
           <button id="toggleDashboardEditing" class="button secondary hidden" type="button" aria-pressed="false">Customize</button>
           <button id="quickNoteButton" class="button secondary">New note</button>
@@ -811,6 +816,24 @@
         <button id="momentFocusPanelToggle" class="moment-chip" type="button" aria-expanded="false" aria-controls="momentFocusPanel">Focus</button>
       </div>
     </div>
+  </section>
+
+  <div id="searchBackdrop" class="search-backdrop hidden"></div>
+  <section id="searchPalette" class="search-palette hidden" role="dialog" aria-modal="true" aria-label="Search Focus Desk">
+    <div class="search-palette-field">
+      <span class="search-palette-icon" aria-hidden="true">&#9906;</span>
+      <input id="searchInput" type="search" role="combobox" autocomplete="off" spellcheck="false" maxlength="200"
+             placeholder="Search tasks, notes, projects, blocks, and links"
+             aria-expanded="false" aria-controls="searchResults" aria-activedescendant="">
+      <button id="closeSearch" class="drawer-close" type="button" aria-label="Close search">Close</button>
+    </div>
+    <div id="searchResults" class="search-results" role="listbox" aria-label="Search results"></div>
+    <p id="searchCount" class="search-count" role="status"></p>
+    <p class="search-hint">
+      <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> move</span>
+      <span><kbd>Enter</kbd> open</span>
+      <span><kbd>Esc</kbd> close</span>
+    </p>
   </section>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
