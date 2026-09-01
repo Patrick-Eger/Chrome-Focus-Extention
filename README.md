@@ -22,7 +22,10 @@ that block every website outside the active workspace allowlist.
   and corner panels for links, tasks, and the focus timer
 - Configurable Moment clock format and size, overlay, visible elements, and quote source
 - Random or personal quotes with either online photos or a personal background-image library
-- Workspace-specific website allowlists
+- Workspace-specific website allowlists, including localhost, private IP
+  addresses, and other single-name hosts for local development
+- Optional site blocking: a focus session can run as a timer only
+- Remaining session time on the Moment screen
 - Workspace favorites with quick capture from the extension popup
 - Global search across projects, tasks, notes, flashcards, Inbox items, reminders,
   work blocks, saved links, and workspaces, opening each result where it lives
@@ -164,8 +167,20 @@ project is marked for review; replacing them requires explicit confirmation.
 
 ## Important behavior
 
-When focus starts, all normal `http` and `https` navigation is redirected to the
-blocked page unless the domain belongs to the active workspace or has a temporary
+**Block sites during focus** in Settings decides whether a session blocks anything.
+With it off, focus still runs the timer, the workspace, and any linked work block,
+but no navigation is redirected - useful when the session is about the timer rather
+than about restriction. The switch takes effect immediately, including on a session
+already running, and the dashboard, sidebar, and popup all say when a session is
+running without blocking.
+
+Allowlists accept any host, not only public domain names: `localhost`,
+`localhost:3000`, `127.0.0.1`, a private address such as `192.168.1.20`, and
+single-name machines on the local network all work. A port is ignored, so allowing
+`localhost:3000` allows every port on `localhost`.
+
+While blocking is on, all normal `http` and `https` navigation is redirected to the
+blocked page unless the host belongs to the active workspace or has a temporary
 access pass. Google authentication domains remain available so Calendar login can
 complete. Ending the session removes the blocking rule.
 
@@ -236,7 +251,9 @@ The corners hold everything else, each a plain label until it is clicked:
 - **Dashboard** and photo source (bottom left) - back to the full dashboard
 - Quote (bottom centre)
 - **Todo** and **Focus** (bottom right) - open tasks, tickable in place, and the
-  25/50/90-minute focus timer
+  25/50/90-minute focus timer. While a session runs, the Focus label counts down,
+  and the remaining time also appears under the greeting with the workspace name -
+  no panel to open
 
 One panel is open at a time and Escape closes them. Every element has its own
 switch under **Settings > Moment screen**, so the screen can be reduced to just a

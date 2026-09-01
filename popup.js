@@ -66,7 +66,13 @@ function render() {
   });
   $('#popupFocusToggle').textContent = state.focus.active ? 'End session' : 'Start focus';
   $('#popupFocusToggle').classList.toggle('running', state.focus.active);
-  $('#popupStatus').textContent = state.focus.active ? 'Focused' : 'Ready';
+  const blocking = state.settings.focusBlocksSites !== false;
+  $('#popupStatus').textContent = state.focus.active
+    ? blocking ? 'Focused' : 'Focused · not blocking'
+    : 'Ready';
+  // Allowing a site is pointless while nothing is being blocked.
+  $('#allowCurrentSite').disabled = !blocking;
+  $('#allowCurrentSite').title = blocking ? '' : 'Site blocking is switched off in Settings.';
   updateTimer();
 }
 

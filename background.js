@@ -58,6 +58,7 @@ const DEFAULTS = {
   dailyPlans: {},
   reminders: [],
   settings: {
+    focusBlocksSites: true,
     gateType: 'math',
     unlockMinutes: 15,
     defaultFocusMinutes: 25,
@@ -133,7 +134,8 @@ chrome.runtime.onStartup.addListener(() => ensureInitialized().catch(console.err
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.focus || changes.workspaces || changes.activeWorkspaceId || changes.temporaryAccess) {
+  if (changes.focus || changes.workspaces || changes.activeWorkspaceId || changes.temporaryAccess
+    || changes.settings) {
     updateBlockRule().catch(console.error);
   }
   if (changes.dailyPlans) syncWorkBlockAlarms().catch(console.error);
@@ -1507,12 +1509,14 @@ async function applyBlockRuleUpdate() {
     'focus',
     'workspaces',
     'activeWorkspaceId',
-    'temporaryAccess'
+    'temporaryAccess',
+    'settings'
   ]);
   const oldRules = await chrome.declarativeNetRequest.getDynamicRules();
   let desiredRule = null;
 
-  if (data.focus && data.focus.active && data.focus.endAt > Date.now()) {
+  const blocksSites = !data.settings || data.settings.focusBlocksSites !== false;
+  if (blocksSites && data.focus && data.focus.active && data.focus.endAt > Date.now()) {
     const workspace = (data.workspaces || []).find((item) => item.id === data.activeWorkspaceId);
     const activeTemporaryDomains = Object.entries(data.temporaryAccess || {})
       .filter(([, expiresAt]) => expiresAt > Date.now())
@@ -1991,7 +1995,15 @@ function workBlockStartAt(dateKey, time) {
 
 function cleanDomain(value) {
   if (typeof value !== 'string') return '';
-  return value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split(':')[0];
+  const host = value.trim().toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .split('?')[0];
+  // A bracketed IPv6 literal must not be cut at its own colons.
+  const bracketed = host.match(/^\[([0-9a-f:.]+)\](?::\d+)?$/i);
+  if (bracketed) return bracketed[1];
+  return host.split(':')[0];
 }
 
 function normalizeSettings(settings) {
@@ -2000,6 +2012,7 @@ function normalizeSettings(settings) {
     dashboardWidgets: normalizeDashboardWidgets(settings.dashboardWidgets),
     dashboardShowTaskBank: settings.dashboardShowTaskBank !== false,
     dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
+    focusBlocksSites: settings.focusBlocksSites !== false,
     momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
     dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
@@ -2383,10 +2396,25 @@ function normalizeCalendarEvent(event, eventIndex) {
   };
 }
 
+// Hosts, not just public domain names: a focus session has to be able to allow a
+// local dev server. "localhost", single-label machine names, and IP literals all
+// have no dot-plus-TLD and used to be rejected here, which silently stripped them
+// from the workspace and made them impossible to unblock.
 function validateDomain(value) {
-  return typeof value === 'string'
-    && value.length <= 253
-    && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+  if (typeof value !== 'string' || !value || value.length > 253) return false;
+  if (/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value)) return true;
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value)) return true;
+  if (isIpv4Host(value)) return true;
+  return isIpv6Host(value);
+}
+
+function isIpv4Host(value) {
+  const parts = value.split('.');
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+function isIpv6Host(value) {
+  return value.includes(':') && /^[0-9a-f:.]+$/i.test(value) && !/:::/.test(value);
 }
 
 function cleanText(value, length) {

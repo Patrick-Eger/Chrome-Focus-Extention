@@ -1496,3 +1496,9 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
     transform: none;
   }
 }
+
+.gate-options.dimmed { opacity: .5; }
+
+.moment-session { margin: 14px 0 0; font-size: 15px; font-weight: 300; }
+.moment-session span:first-child { font-size: clamp(20px, 2.2vw, 30px); font-variant-numeric: tabular-nums; }
+.moment-session span:last-child { display: block; margin-top: 2px; opacity: .78; }

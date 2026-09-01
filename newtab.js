@@ -821,10 +821,21 @@ function renderFocus() {
   $('#momentFocusToggle').textContent = active ? 'End session' : 'Start focus';
   $('#momentFocusToggle').classList.toggle('running', active);
   $('#momentFocusLabel').textContent = active ? getWorkspace(state.activeWorkspaceId).name : 'Focus session';
+  const blocking = state.settings.focusBlocksSites !== false;
   $('#focusMessage').textContent = active
-    ? `Only ${workspace.domains.length} allowed domain${workspace.domains.length === 1 ? '' : 's'} in ${workspace.name}.`
-    : 'Choose a session length and protect your attention.';
-  $('#sidebarFocusStatus').textContent = active ? 'Focus running' : 'Not running';
+    ? blocking
+      ? `Only ${workspace.domains.length} allowed domain${workspace.domains.length === 1 ? '' : 's'} in ${workspace.name}.`
+      : `Running in ${workspace.name}. Site blocking is switched off.`
+    : blocking
+      ? 'Choose a session length and protect your attention.'
+      : 'Site blocking is off. Sessions still run the timer and workspace.';
+  $('#momentSessionLine').classList.toggle('hidden', !active || state.settings.momentShowFocus === false);
+  $('#momentSessionContext').textContent = active
+    ? `left in ${workspace.name}${blocking ? '' : ' · not blocking'}`
+    : '';
+  $('#sidebarFocusStatus').textContent = active
+    ? blocking ? 'Focus running' : 'Focus running · not blocking'
+    : 'Not running';
   $('#sidebarWorkspace').textContent = workspace.name;
   $$('.segment, .moment-segment').forEach((button) => {
     button.classList.toggle('active', Number(button.dataset.minutes) === selectedFocusMinutes);
@@ -849,6 +860,8 @@ function updateFocusTimer() {
   const display = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   $('#focusTimer').textContent = display;
   $('#momentFocusTimer').textContent = display;
+  $('#momentSessionTime').textContent = display;
+  $('#momentFocusPanelToggle').textContent = active ? `Focus ${display}` : 'Focus';
   if (state.focus.active && !active) loadState();
 }
 
@@ -3277,7 +3290,7 @@ function bindWorkspaces() {
       event.preventDefault();
       const input = $('#domainInput');
       const domain = normalizeDomain(input.value);
-      if (!isDomain(domain)) return showToast('Enter a valid domain such as example.com.');
+      if (!isDomain(domain)) return showToast('Enter a site such as example.com, localhost, or 127.0.0.1.');
       const workspaces = state.workspaces.map((workspace) => workspace.id === state.activeWorkspaceId
         ? { ...workspace, domains: Array.from(new Set([...workspace.domains, domain])), updatedAt: Date.now() }
         : workspace);
@@ -3362,7 +3375,7 @@ function renderWorkspaces() {
     <div class="workspace-detail-header"><div><span class="eyebrow">Active workspace</span><h2>${escapeHtml(active.name)}</h2></div><span>${favorites.length + active.tabs.length} links</span></div>
     <section class="allowlist-section">
       <div class="workspace-subheading"><h3>Focus allowlist</h3><span>${active.domains.length} domains</span></div>
-      <form id="domainForm" class="domain-form"><input id="domainInput" type="text" placeholder="example.com" required><button class="button primary">Allow domain</button></form>
+      <form id="domainForm" class="domain-form"><input id="domainInput" type="text" placeholder="example.com or localhost:3000" required><button class="button primary">Allow domain</button></form>
       <div class="domain-list">${active.domains.length ? active.domains.map((domain) => `<span class="domain-chip">${escapeHtml(domain)}<button data-remove-domain="${escapeHtml(domain)}" aria-label="Remove ${escapeHtml(domain)}">Remove</button></span>`).join('') : '<p class="workspace-empty">No allowed domains.</p>'}</div>
     </section>
     <section class="workspace-projects-section">
@@ -4248,6 +4261,10 @@ function bindSettings() {
   $('#momentOverlay').addEventListener('input', (event) => {
     $('#momentOverlayValue').textContent = `${event.target.value}%`;
   });
+  $('#focusBlocksSites').addEventListener('change', async (event) => {
+    // Applies at once, including to a session already running.
+    await save({ settings: { ...state.settings, focusBlocksSites: event.target.checked } });
+  });
   $('#momentQuoteMode').addEventListener('change', toggleCustomQuoteFields);
   $$('input[name="colorMode"]').forEach((input) => input.addEventListener('change', (event) => {
     document.documentElement.dataset.theme = event.target.value;
@@ -4270,6 +4287,7 @@ function bindSettings() {
     const settings = {
       ...state.settings,
       gateType,
+      focusBlocksSites: $('#focusBlocksSites').checked,
       palette: ['signal', 'cobalt', 'forest', 'orange'].includes(palette) ? palette : 'signal',
       colorMode: ['system', 'light', 'dark'].includes($('input[name="colorMode"]:checked')?.value)
         ? $('input[name="colorMode"]:checked').value
@@ -4362,6 +4380,7 @@ function markSettingsFormDirty(event) {
   // re-rendered afterwards, so marking them would leave the flag stuck on forever.
   if (event.target.closest('#dashboardWidgetList, #dashboardBackgroundOptions')) return;
   if (event.target.name === 'dashboardBackground') return;
+  if (event.target.id === 'focusBlocksSites') return;
   settingsFormDirty = true;
 }
 
@@ -4372,6 +4391,8 @@ function applySettingsFormValues() {
   if (gate) gate.checked = true;
   if (palette) palette.checked = true;
   if (colorMode) colorMode.checked = true;
+  $('#focusBlocksSites').checked = state.settings.focusBlocksSites !== false;
+  $('#gateOptions').classList.toggle('dimmed', state.settings.focusBlocksSites === false);
   $('#unlockMinutes').value = state.settings.unlockMinutes;
   $('#defaultFocusMinutes').value = state.settings.defaultFocusMinutes;
   $('#workdayStart').value = state.settings.workdayStart || '09:00';
@@ -5379,7 +5400,14 @@ function clamp(value, min, max, fallback) {
 }
 
 function normalizeDomain(value) {
-  return String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split(':')[0];
+  const host = String(value || '').trim().toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .split('?')[0];
+  const bracketed = host.match(/^\[([0-9a-f:.]+)\](?::\d+)?$/i);
+  if (bracketed) return bracketed[1];
+  return host.split(':')[0];
 }
 
 function normalizeHttpUrl(value) {
@@ -5401,8 +5429,15 @@ function hostnameFromUrl(value) {
   }
 }
 
+// Mirrors validateDomain in background.js: hosts, not just public domain names,
+// so a local dev server can be added to a workspace.
 function isDomain(value) {
-  return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+  if (typeof value !== 'string' || !value || value.length > 253) return false;
+  if (/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value)) return true;
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value)) return true;
+  const parts = value.split('.');
+  if (parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return true;
+  return value.includes(':') && /^[0-9a-f:.]+$/i.test(value) && !/:::/.test(value);
 }
 
 function nextRoundedTime() {
