@@ -253,7 +253,8 @@ The corners hold everything else, each a plain label until it is clicked:
 - **Todo** and **Focus** (bottom right) - open tasks, tickable in place, and the
   25/50/90-minute focus timer. While a session runs, the Focus label counts down,
   and the remaining time also appears under the greeting with the workspace name -
-  no panel to open
+  no panel to open. That readout has its own **Show remaining time** switch, so
+  hiding the focus controls does not also hide how long is left
 
 One panel is open at a time and Escape closes them. Every element has its own
 switch under **Settings > Moment screen**, so the screen can be reduced to just a

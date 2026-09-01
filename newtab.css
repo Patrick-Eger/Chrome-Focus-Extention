@@ -1499,6 +1499,22 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 
 .gate-options.dimmed { opacity: .5; }
 
-.moment-session { margin: 14px 0 0; font-size: 15px; font-weight: 300; }
-.moment-session span:first-child { font-size: clamp(20px, 2.2vw, 30px); font-variant-numeric: tabular-nums; }
-.moment-session span:last-child { display: block; margin-top: 2px; opacity: .78; }
+.moment-session {
+  width: fit-content;
+  margin: 18px auto 0;
+  padding: 8px 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, .34);
+  backdrop-filter: blur(10px);
+  font-size: 14px;
+  font-weight: 300;
+}
+.moment-session span:first-child {
+  font-size: clamp(26px, 2.8vw, 38px);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.moment-session span:last-child { opacity: .85; }

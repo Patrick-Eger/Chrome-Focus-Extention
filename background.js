@@ -85,6 +85,7 @@ const DEFAULTS = {
     momentShowQuote: true,
     momentShowDate: true,
     momentShowFocus: true,
+    momentShowSessionTime: true,
     momentShowSource: true,
     momentGreetingName: '',
     momentShowGreeting: true,

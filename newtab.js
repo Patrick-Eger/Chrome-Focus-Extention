@@ -829,7 +829,9 @@ function renderFocus() {
     : blocking
       ? 'Choose a session length and protect your attention.'
       : 'Site blocking is off. Sessions still run the timer and workspace.';
-  $('#momentSessionLine').classList.toggle('hidden', !active || state.settings.momentShowFocus === false);
+  // Deliberately not tied to momentShowFocus: hiding the buttons should not also
+  // hide how much time is left.
+  $('#momentSessionLine').classList.toggle('hidden', !active || state.settings.momentShowSessionTime === false);
   $('#momentSessionContext').textContent = active
     ? `left in ${workspace.name}${blocking ? '' : ' · not blocking'}`
     : '';
@@ -4319,6 +4321,7 @@ function bindSettings() {
       momentShowQuote: $('#momentShowQuote').checked,
       momentShowDate: $('#momentShowDate').checked,
       momentShowFocus: $('#momentShowFocus').checked,
+      momentShowSessionTime: $('#momentShowSessionTime').checked,
       momentShowSource: $('#momentShowSource').checked,
       momentQuoteMode: $('#momentQuoteMode').value === 'custom' ? 'custom' : 'random',
       momentCustomQuote: $('#momentCustomQuote').value.trim().slice(0, 360),
@@ -4424,6 +4427,7 @@ function applySettingsFormValues() {
   $('#momentShowQuote').checked = state.settings.momentShowQuote;
   $('#momentShowDate').checked = state.settings.momentShowDate;
   $('#momentShowFocus').checked = state.settings.momentShowFocus;
+  $('#momentShowSessionTime').checked = state.settings.momentShowSessionTime !== false;
   $('#momentShowSource').checked = state.settings.momentShowSource;
   $('#momentQuoteMode').value = state.settings.momentQuoteMode;
   $('#momentCustomQuote').value = state.settings.momentCustomQuote;
