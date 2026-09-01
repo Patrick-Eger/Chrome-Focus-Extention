@@ -833,7 +833,7 @@ function renderFocus() {
   // hide how much time is left.
   $('#momentSessionLine').classList.toggle('hidden', !active || state.settings.momentShowSessionTime === false);
   $('#momentSessionContext').textContent = active
-    ? `left in ${workspace.name}${blocking ? '' : ' · not blocking'}`
+    ? `${workspace.name}${blocking ? '' : ' · not blocking'}`
     : '';
   $('#sidebarFocusStatus').textContent = active
     ? blocking ? 'Focus running' : 'Focus running · not blocking'
@@ -862,8 +862,8 @@ function updateFocusTimer() {
   const display = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   $('#focusTimer').textContent = display;
   $('#momentFocusTimer').textContent = display;
-  $('#momentSessionTime').textContent = display;
   $('#momentFocusPanelToggle').textContent = active ? `Focus ${display}` : 'Focus';
+  updateClock();
   if (state.focus.active && !active) loadState();
 }
 
@@ -5373,9 +5373,21 @@ function updateClock() {
   const date = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#headerClock').textContent = time;
   $('#todayLabel').textContent = date;
-  $('#momentClock').textContent = momentTime;
+  const countdown = momentCountdown();
+  $('#momentClock').textContent = countdown || momentTime;
+  $('#momentClockLabel').classList.toggle('hidden', !countdown);
+  $('#momentSessionTime').textContent = countdown ? momentTime : '';
   if (state && $('#momentGreeting').textContent) renderMomentGreeting();
   $('#momentDate').textContent = date;
+}
+
+// The remaining time takes over the clock while a session runs; the wall clock
+// moves down into the pill so the time of day is not simply lost.
+function momentCountdown() {
+  if (!state || state.settings.momentShowSessionTime === false) return '';
+  if (!state.focus.active || !(state.focus.endAt > Date.now())) return '';
+  const totalSeconds = Math.ceil(Math.max(0, state.focus.endAt - Date.now()) / 1000);
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
 }
 
 function showToast(message) {

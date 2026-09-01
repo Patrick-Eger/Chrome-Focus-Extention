@@ -1499,22 +1499,30 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 
 .gate-options.dimmed { opacity: .5; }
 
+/* Marks the big number as a countdown, so it is not misread as the time. */
+.moment-clock-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  opacity: .8;
+}
+
+/* Secondary once the countdown owns the clock: the wall clock and the context. */
 .moment-session {
   width: fit-content;
-  margin: 18px auto 0;
-  padding: 8px 18px;
+  margin: 16px auto 0;
+  padding: 5px 14px;
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 8px;
   border-radius: 999px;
-  background: rgba(17, 17, 17, .34);
+  background: rgba(17, 17, 17, .3);
   backdrop-filter: blur(10px);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 300;
 }
-.moment-session span:first-child {
-  font-size: clamp(26px, 2.8vw, 38px);
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
+.moment-session span:first-child { font-variant-numeric: tabular-nums; }
+.moment-session span:first-child:not(:empty) + span::before { content: '· '; opacity: .6; }
 .moment-session span:last-child { opacity: .85; }

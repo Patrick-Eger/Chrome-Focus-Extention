@@ -238,6 +238,13 @@ familiar by Momentum: a full-bleed photo, a large light-weight clock centred jus
 above the middle, a time-of-day greeting under it, and a single question below
 that - **What is your main focus for today?**
 
+While a focus session runs, the big clock becomes the remaining time, labelled
+**Time left**, and the clock itself moves into a small line under the greeting
+alongside the workspace name - so the countdown is the thing you cannot miss and
+the time of day is still there. **Show remaining time** in Settings turns this off
+and keeps the clock a clock; it is separate from **Show focus controls**, so
+hiding the buttons does not hide how long is left.
+
 Typing an answer replaces the question with the answer itself. Hovering it reveals
 a circle to tick it off and a cross to clear it. The answer belongs to one day: a
 new day asks the question again rather than carrying yesterday's answer forward.
@@ -251,10 +258,7 @@ The corners hold everything else, each a plain label until it is clicked:
 - **Dashboard** and photo source (bottom left) - back to the full dashboard
 - Quote (bottom centre)
 - **Todo** and **Focus** (bottom right) - open tasks, tickable in place, and the
-  25/50/90-minute focus timer. While a session runs, the Focus label counts down,
-  and the remaining time also appears under the greeting with the workspace name -
-  no panel to open. That readout has its own **Show remaining time** switch, so
-  hiding the focus controls does not also hide how long is left
+  25/50/90-minute focus timer. While a session runs, the Focus label counts down too
 
 One panel is open at a time and Escape closes them. Every element has its own
 switch under **Settings > Moment screen**, so the screen can be reduced to just a
