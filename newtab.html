@@ -294,6 +294,7 @@
               <div class="whiteboard-tools" role="radiogroup" aria-label="Whiteboard tool">
                 <button class="whiteboard-tool active" data-whiteboard-tool="pen" type="button" aria-pressed="true">Pen</button>
                 <button class="whiteboard-tool" data-whiteboard-tool="text" type="button" aria-pressed="false">Text</button>
+                <button class="whiteboard-tool" data-whiteboard-tool="eraser" type="button" aria-pressed="false">Eraser</button>
                 <button class="whiteboard-tool" data-whiteboard-tool="pan" type="button" aria-pressed="false">Pan</button>
               </div>
               <div class="whiteboard-actions">
@@ -302,13 +303,14 @@
                 <span id="whiteboardZoom" class="whiteboard-zoom">100%</span>
                 <button id="whiteboardClear" class="text-button danger-text" type="button">Clear board</button>
                 <span id="whiteboardStatus" class="whiteboard-status" role="status"></span>
+                <button id="whiteboardFullscreen" class="button secondary small" type="button" aria-pressed="false">Fullscreen</button>
               </div>
             </div>
             <div id="whiteboardStage" class="whiteboard-stage">
               <canvas id="whiteboardCanvas"></canvas>
               <textarea id="whiteboardTextInput" class="whiteboard-text-input hidden" rows="1" maxlength="2000" spellcheck="false"></textarea>
             </div>
-            <p class="whiteboard-hint">Draw with the pen, click with Text to write, drag with Pan or hold Space. Scroll to zoom. Everything saves itself.</p>
+            <p class="whiteboard-hint">Draw with the pen, click with Text to write, brush over something with the Eraser to remove it, drag with Pan or hold Space. Scroll to zoom. Everything saves itself.</p>
           </section>
         </div>
       </section>

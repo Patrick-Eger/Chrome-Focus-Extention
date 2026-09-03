@@ -59,6 +59,10 @@ let whiteboardSaveQueue = Promise.resolve();
 let whiteboardSavedAt = 0;
 let whiteboardPointer = null;
 let whiteboardSpaceHeld = false;
+let whiteboardCursor = null;
+let whiteboardErasedAny = false;
+let whiteboardResizeObserver = null;
+let whiteboardRedrawTimer = null;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -5534,7 +5538,8 @@ async function renderProjectWhiteboard(project) {
 
 function setWhiteboardTool(tool) {
   commitWhiteboardText();
-  whiteboardTool = ['pen', 'text', 'pan'].includes(tool) ? tool : 'pen';
+  whiteboardTool = ['pen', 'text', 'pan', 'eraser'].includes(tool) ? tool : 'pen';
+  whiteboardCursor = null;
   renderWhiteboardChrome();
 }
 
@@ -5550,6 +5555,57 @@ function zoomWhiteboardAt(clientX, clientY, factor) {
   whiteboardView.scale = next;
   renderWhiteboardChrome();
   drawWhiteboard();
+}
+
+// Squared distance from a point to a segment; used to decide whether the eraser
+// touched a stroke. Squared throughout to avoid a sqrt per segment.
+function segmentDistanceSquared(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSquared = dx * dx + dy * dy;
+  let t = 0;
+  if (lengthSquared > 0) {
+    t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+  }
+  const cx = x1 + t * dx;
+  const cy = y1 + t * dy;
+  return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+}
+
+function strokeTouchesPoint(stroke, point, radius) {
+  const points = stroke.points || [];
+  const limit = radius * radius;
+  if (points.length === 2) {
+    const dx = point.x - points[0];
+    const dy = point.y - points[1];
+    return dx * dx + dy * dy <= limit;
+  }
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    if (segmentDistanceSquared(point.x, point.y, points[i], points[i + 1], points[i + 2], points[i + 3]) <= limit) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Whole-item eraser: splitting vector strokes mid-line would leave ragged ends
+// and needs a far heavier model. Undo covers a wrong swipe.
+function eraseWhiteboardAt(point) {
+  const radius = WHITEBOARD_ERASER_RADIUS / whiteboardView.scale;
+  let removed = false;
+  for (let i = whiteboardBoard.strokes.length - 1; i >= 0; i -= 1) {
+    if (strokeTouchesPoint(whiteboardBoard.strokes[i], point, radius)) {
+      whiteboardBoard.strokes.splice(i, 1);
+      removed = true;
+    }
+  }
+  const text = whiteboardTextAt(point);
+  if (text) {
+    whiteboardBoard.texts = whiteboardBoard.texts.filter((item) => item.id !== text.id);
+    removed = true;
+  }
+  return removed;
 }
 
 function whiteboardTextAt(point) {
@@ -5656,6 +5712,24 @@ function bindWhiteboard() {
     renderWhiteboardChrome();
     drawWhiteboard();
   });
+  $('#whiteboardFullscreen').addEventListener('click', async () => {
+    const section = $('#projectWhiteboard');
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await section.requestFullscreen();
+    } catch (error) {
+      showToast(error.message || 'Fullscreen is not available here.');
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    const on = document.fullscreenElement === $('#projectWhiteboard');
+    const button = $('#whiteboardFullscreen');
+    button.textContent = on ? 'Exit fullscreen' : 'Fullscreen';
+    button.setAttribute('aria-pressed', String(on));
+    redrawWhiteboardSoon();
+  });
+
   $('#whiteboardClear').addEventListener('click', () => {
     if (!whiteboardBoard) return;
     if (!whiteboardBoard.strokes.length && !whiteboardBoard.texts.length) return;
@@ -5679,6 +5753,15 @@ function bindWhiteboard() {
       stage.classList.add('panning');
       return;
     }
+    if (whiteboardTool === 'eraser') {
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      whiteboardCursor = point;
+      whiteboardPointer = { mode: 'erase' };
+      whiteboardErasedAny = eraseWhiteboardAt(point);
+      renderWhiteboardChrome();
+      drawWhiteboard();
+      return;
+    }
     if (whiteboardTool === 'text') {
       const point = whiteboardToBoard(event.clientX, event.clientY);
       const existing = whiteboardTextAt(point);
@@ -5696,6 +5779,17 @@ function bindWhiteboard() {
   });
 
   canvas.addEventListener('pointermove', (event) => {
+    if (whiteboardTool === 'eraser' && whiteboardBoard) {
+      whiteboardCursor = whiteboardToBoard(event.clientX, event.clientY);
+      if (whiteboardPointer && whiteboardPointer.mode === 'erase') {
+        if (eraseWhiteboardAt(whiteboardCursor)) {
+          whiteboardErasedAny = true;
+          renderWhiteboardChrome();
+        }
+      }
+      drawWhiteboard();
+      if (!whiteboardPointer) return;
+    }
     if (!whiteboardPointer) return;
     if (whiteboardPointer.mode === 'pan') {
       whiteboardView.x += event.clientX - whiteboardPointer.x;
@@ -5726,11 +5820,22 @@ function bindWhiteboard() {
       scheduleWhiteboardSave();
       renderWhiteboardChrome();
     }
+    if (whiteboardPointer.mode === 'erase' && whiteboardErasedAny) {
+      // One save for the whole swipe, not one per stroke it crossed.
+      whiteboardErasedAny = false;
+      scheduleWhiteboardSave();
+    }
     whiteboardPointer = null;
     drawWhiteboard();
   };
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
+
+  canvas.addEventListener('pointerleave', () => {
+    if (!whiteboardCursor) return;
+    whiteboardCursor = null;
+    drawWhiteboard();
+  });
 
   canvas.addEventListener('wheel', (event) => {
     if (!whiteboardBoard) return;
@@ -5770,8 +5875,12 @@ function bindWhiteboard() {
   });
 
   // The stage has no size while its view is hidden, so the canvas has to be
-  // re-measured whenever it becomes visible or the window changes.
-  new ResizeObserver(() => drawWhiteboard()).observe(stage);
+  // re-measured whenever it becomes visible or the window changes. Kept in a
+  // variable rather than left anonymous, which is the documented way to stop an
+  // observer being collected out from under its targets.
+  whiteboardResizeObserver = new ResizeObserver(() => drawWhiteboard());
+  whiteboardResizeObserver.observe(stage);
+  window.addEventListener('resize', () => drawWhiteboard());
   window.addEventListener('beforeunload', () => { flushWhiteboardSave(); });
 }
 
@@ -5779,6 +5888,7 @@ const WHITEBOARD_MIN_SCALE = 0.2;
 const WHITEBOARD_MAX_SCALE = 5;
 const WHITEBOARD_PEN_WIDTH = 2.5;
 const WHITEBOARD_TEXT_SIZE = 18;
+const WHITEBOARD_ERASER_RADIUS = 14;
 
 function whiteboardContext() {
   return $('#whiteboardCanvas').getContext('2d');
@@ -5838,6 +5948,17 @@ function drawWhiteboard() {
     ctx.stroke();
   }
 
+  if (whiteboardTool === 'eraser' && whiteboardCursor) {
+    ctx.save();
+    ctx.strokeStyle = ink;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1 / whiteboardView.scale;
+    ctx.beginPath();
+    ctx.arc(whiteboardCursor.x, whiteboardCursor.y, WHITEBOARD_ERASER_RADIUS / whiteboardView.scale, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.fillStyle = ink;
   ctx.textBaseline = 'top';
   for (const item of whiteboardBoard.texts) {
@@ -5871,6 +5992,16 @@ function drawWhiteboardGrid(ctx, canvas, ratio) {
     }
   }
   ctx.restore();
+}
+
+// Fullscreen layout settles after the event fires, so measuring immediately reads
+// the old size. Redraw now, next frame, and once more on a timer: rAF is paused
+// while the page is hidden, so it cannot be the only path.
+function redrawWhiteboardSoon() {
+  drawWhiteboard();
+  requestAnimationFrame(() => drawWhiteboard());
+  clearTimeout(whiteboardRedrawTimer);
+  whiteboardRedrawTimer = setTimeout(drawWhiteboard, 120);
 }
 
 function renderWhiteboardChrome() {

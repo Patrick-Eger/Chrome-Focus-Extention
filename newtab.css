@@ -1576,3 +1576,18 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 }
 .whiteboard-text-input:focus { outline: 0; }
 .whiteboard-hint { margin: 0; color: var(--muted); font-size: 12px; }
+
+.whiteboard-stage[data-tool="eraser"] canvas { cursor: none; }
+
+/* Fullscreen: the section becomes the whole screen, so the stage has to grow
+   into it instead of keeping its fixed viewport-relative height. */
+#projectWhiteboard:fullscreen {
+  padding: 16px 20px;
+  background: var(--surface);
+}
+#projectWhiteboard:fullscreen .whiteboard-stage {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+#projectWhiteboard:fullscreen .whiteboard-hint { flex: 0 0 auto; }
