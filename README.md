@@ -53,6 +53,8 @@ that block every website outside the active workspace allowlist.
 - Project link libraries with site favicons for saving and reopening useful
   websites and resources, including one-click opening of every project link
 - Project task groups plus Overview, five-stage Kanban, and grouped List views
+- A whiteboard per project on an infinite canvas with a pen and text, saving itself
+  as you draw
 - Rich tasks with project/group relationships, Markdown details, labels, estimates,
   due and planned dates, priorities, and subtasks
 - Searchable Markdown notes with a full editor, sanitized preview, and automatic saving
@@ -264,6 +266,26 @@ One panel is open at a time and Escape closes them. Every element has its own
 switch under **Settings > Moment screen**, so the screen can be reduced to just a
 clock. Momentum's weather corner is not implemented; it needs a third-party
 weather service and a location, which the extension does not have.
+
+## Project whiteboards
+
+Every project has a **Whiteboard** tab beside Overview, Board, and List. The canvas
+is unbounded: drag with **Pan** or hold Space to move, scroll to zoom between 20%
+and 500%, and **Reset view** returns to the origin. A faint dot grid makes the
+movement legible.
+
+**Pen** draws freehand and **Text** places a box wherever you click; clicking an
+existing text reopens it, and emptying one removes it. Text takes multiple lines,
+Escape or Cmd/Ctrl+Enter commits it. The pen follows the interface text colour, so
+it stays readable in dark mode. **Undo** removes the most recent stroke or text
+(also Cmd/Ctrl+Z), and **Clear board** empties the whole canvas after a
+confirmation.
+
+Nothing needs saving by hand: every change is written half a second later and the
+bar shows when it last saved. Strokes and text are stored per project in their own
+IndexedDB database rather than in `chrome.storage.local`, because a drawing grows
+without bound and that store is capped and sent to every page on load. Whiteboards
+are therefore local to the browser profile and are not part of the Obsidian export.
 
 ## Search
 

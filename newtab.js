@@ -48,6 +48,17 @@ let searchResults = [];
 let searchActiveIndex = 0;
 let searchEntries = null;
 let searchReturnFocus = null;
+let whiteboardBoard = null;
+let whiteboardView = { x: 0, y: 0, scale: 1 };
+let whiteboardTool = 'pen';
+let whiteboardDraft = null;
+let whiteboardEditingText = null;
+let whiteboardTextDraft = null;
+let whiteboardSaveTimer = null;
+let whiteboardSaveQueue = Promise.resolve();
+let whiteboardSavedAt = 0;
+let whiteboardPointer = null;
+let whiteboardSpaceHeld = false;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -134,6 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   selectedCalendarDate = todayKey();
   bindNavigation();
   bindSearch();
+  bindWhiteboard();
   bindFocus();
   bindPlanning();
   bindInbox();
@@ -2488,9 +2500,11 @@ function renderProjectDetail(project) {
   $('#projectOverview').classList.toggle('hidden', projectViewMode !== 'overview');
   $('#projectBoard').classList.toggle('hidden', projectViewMode !== 'board');
   $('#projectListView').classList.toggle('hidden', projectViewMode !== 'list');
+  $('#projectWhiteboard').classList.toggle('hidden', projectViewMode !== 'whiteboard');
   if (projectViewMode === 'overview') renderProjectOverview(project);
   if (projectViewMode === 'board') renderProjectBoard(project);
   if (projectViewMode === 'list') renderProjectList(project);
+  if (projectViewMode === 'whiteboard') renderProjectWhiteboard(project).catch((error) => showToast(error.message));
 }
 
 function projectObsidianSyncState(project) {
@@ -5486,6 +5500,487 @@ function formatEventTime(start, end) {
   const startText = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const endText = end ? new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   return endText ? `${startText}–${endText}` : startText;
+}
+
+// Boards live in their own IndexedDB, not chrome.storage.local: strokes grow
+// without bound, that store is capped at 10 MB, and getState ships all of it to
+// every page on load.
+const WHITEBOARD_DATABASE = 'focus-desk-whiteboards';
+const WHITEBOARD_STORE = 'boards';
+
+async function renderProjectWhiteboard(project) {
+  if (!whiteboardBoard || whiteboardBoard.projectId !== project.id) {
+    commitWhiteboardText();
+    await flushWhiteboardSave();
+    whiteboardBoard = null;
+    setWhiteboardStatus('Loading...');
+    try {
+      const board = await readWhiteboard(project.id);
+      // The user may have switched projects while this was in flight.
+      if (selectedProjectId !== project.id) return;
+      whiteboardBoard = board;
+      whiteboardSavedAt = board.updatedAt;
+      whiteboardView = { x: 0, y: 0, scale: 1 };
+      setWhiteboardStatus(board.updatedAt ? `Saved ${formatSaveTime(board.updatedAt)}` : '');
+    } catch (error) {
+      setWhiteboardStatus('Unavailable');
+      showToast(error.message);
+      return;
+    }
+  }
+  renderWhiteboardChrome();
+  drawWhiteboard();
+}
+
+function setWhiteboardTool(tool) {
+  commitWhiteboardText();
+  whiteboardTool = ['pen', 'text', 'pan'].includes(tool) ? tool : 'pen';
+  renderWhiteboardChrome();
+}
+
+function zoomWhiteboardAt(clientX, clientY, factor) {
+  const rect = $('#whiteboardCanvas').getBoundingClientRect();
+  const next = clamp(whiteboardView.scale * factor, WHITEBOARD_MIN_SCALE, WHITEBOARD_MAX_SCALE, 1);
+  if (next === whiteboardView.scale) return;
+  // Keep the point under the cursor fixed while zooming.
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  whiteboardView.x = px - (px - whiteboardView.x) * (next / whiteboardView.scale);
+  whiteboardView.y = py - (py - whiteboardView.y) * (next / whiteboardView.scale);
+  whiteboardView.scale = next;
+  renderWhiteboardChrome();
+  drawWhiteboard();
+}
+
+function whiteboardTextAt(point) {
+  const ctx = whiteboardContext();
+  for (let i = whiteboardBoard.texts.length - 1; i >= 0; i -= 1) {
+    const item = whiteboardBoard.texts[i];
+    const size = item.size || WHITEBOARD_TEXT_SIZE;
+    ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const lines = item.text.split('\n');
+    const width = Math.max(...lines.map((line) => ctx.measureText(line).width), 40);
+    const height = lines.length * size * 1.25;
+    if (point.x >= item.x - 4 && point.x <= item.x + width + 4
+      && point.y >= item.y - 4 && point.y <= item.y + height + 4) return item;
+  }
+  return null;
+}
+
+// draft carries a not-yet-inserted item; only a committed, non-empty text is
+// pushed into the board. Inserting on open let an empty box reach storage
+// whenever an unrelated save fired while it was still open.
+function openWhiteboardText(item, draft = false) {
+  const input = $('#whiteboardTextInput');
+  whiteboardEditingText = item.id;
+  whiteboardTextDraft = draft ? item : null;
+  const size = (item.size || WHITEBOARD_TEXT_SIZE) * whiteboardView.scale;
+  input.value = item.text;
+  input.style.left = `${item.x * whiteboardView.scale + whiteboardView.x}px`;
+  input.style.top = `${item.y * whiteboardView.scale + whiteboardView.y}px`;
+  input.style.fontSize = `${size}px`;
+  input.classList.remove('hidden');
+  drawWhiteboard();
+  setTimeout(() => {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    resizeWhiteboardTextInput();
+  }, 0);
+}
+
+function resizeWhiteboardTextInput() {
+  const input = $('#whiteboardTextInput');
+  input.style.height = 'auto';
+  input.style.height = `${input.scrollHeight}px`;
+}
+
+// Synchronous on purpose: pointerdown must set its state and take pointer
+// capture in the same task as the event, or a fast pointermove is dropped.
+function commitWhiteboardText() {
+  if (!whiteboardEditingText || !whiteboardBoard) return;
+  const input = $('#whiteboardTextInput');
+  const id = whiteboardEditingText;
+  const draft = whiteboardTextDraft;
+  const text = input.value.replace(/\s+$/, '');
+  whiteboardEditingText = null;
+  whiteboardTextDraft = null;
+  input.classList.add('hidden');
+
+  if (draft) {
+    if (text) {
+      whiteboardBoard.texts.push({ ...draft, text });
+      scheduleWhiteboardSave();
+    }
+  } else {
+    const index = whiteboardBoard.texts.findIndex((item) => item.id === id);
+    if (index >= 0) {
+      const existing = whiteboardBoard.texts[index];
+      if (!text) {
+        whiteboardBoard.texts.splice(index, 1);
+        scheduleWhiteboardSave();
+      } else if (text !== existing.text) {
+        whiteboardBoard.texts[index] = { ...existing, text };
+        scheduleWhiteboardSave();
+      }
+    }
+  }
+  renderWhiteboardChrome();
+  drawWhiteboard();
+}
+
+function undoWhiteboard() {
+  if (!whiteboardBoard) return;
+  const lastStroke = whiteboardBoard.strokes[whiteboardBoard.strokes.length - 1];
+  const lastText = whiteboardBoard.texts[whiteboardBoard.texts.length - 1];
+  if (!lastStroke && !lastText) return;
+  const strokeAt = lastStroke ? lastStroke.createdAt || 0 : -1;
+  const textAt = lastText ? lastText.createdAt || 0 : -1;
+  if (strokeAt >= textAt) whiteboardBoard.strokes.pop();
+  else whiteboardBoard.texts.pop();
+  scheduleWhiteboardSave();
+  renderWhiteboardChrome();
+  drawWhiteboard();
+}
+
+function bindWhiteboard() {
+  const stage = $('#whiteboardStage');
+  const canvas = $('#whiteboardCanvas');
+  const input = $('#whiteboardTextInput');
+
+  $$('[data-whiteboard-tool]').forEach((button) => {
+    button.addEventListener('click', () => setWhiteboardTool(button.dataset.whiteboardTool));
+  });
+  $('#whiteboardUndo').addEventListener('click', undoWhiteboard);
+  $('#whiteboardReset').addEventListener('click', () => {
+    whiteboardView = { x: 0, y: 0, scale: 1 };
+    renderWhiteboardChrome();
+    drawWhiteboard();
+  });
+  $('#whiteboardClear').addEventListener('click', () => {
+    if (!whiteboardBoard) return;
+    if (!whiteboardBoard.strokes.length && !whiteboardBoard.texts.length) return;
+    if (!confirm('Clear everything on this whiteboard?')) return;
+    commitWhiteboardText();
+    whiteboardBoard.strokes = [];
+    whiteboardBoard.texts = [];
+    scheduleWhiteboardSave();
+    renderWhiteboardChrome();
+    drawWhiteboard();
+  });
+
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!whiteboardBoard || event.button !== 0) return;
+    commitWhiteboardText();
+    const panning = whiteboardTool === 'pan' || whiteboardSpaceHeld;
+    canvas.setPointerCapture(event.pointerId);
+
+    if (panning) {
+      whiteboardPointer = { mode: 'pan', x: event.clientX, y: event.clientY };
+      stage.classList.add('panning');
+      return;
+    }
+    if (whiteboardTool === 'text') {
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      const existing = whiteboardTextAt(point);
+      if (existing) return openWhiteboardText(existing);
+      openWhiteboardText(
+        { id: createId('wbtext'), x: point.x, y: point.y, text: '', size: WHITEBOARD_TEXT_SIZE, createdAt: Date.now() },
+        true
+      );
+      return;
+    }
+    const point = whiteboardToBoard(event.clientX, event.clientY);
+    whiteboardDraft = { id: createId('wbstroke'), width: WHITEBOARD_PEN_WIDTH, points: [point.x, point.y], createdAt: Date.now() };
+    whiteboardPointer = { mode: 'draw' };
+    drawWhiteboard();
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (!whiteboardPointer) return;
+    if (whiteboardPointer.mode === 'pan') {
+      whiteboardView.x += event.clientX - whiteboardPointer.x;
+      whiteboardView.y += event.clientY - whiteboardPointer.y;
+      whiteboardPointer.x = event.clientX;
+      whiteboardPointer.y = event.clientY;
+      drawWhiteboard();
+      return;
+    }
+    if (!whiteboardDraft) return;
+    const point = whiteboardToBoard(event.clientX, event.clientY);
+    const points = whiteboardDraft.points;
+    const dx = point.x - points[points.length - 2];
+    const dy = point.y - points[points.length - 1];
+    // Drop sub-pixel moves: they bloat the stored stroke without changing the line.
+    if (dx * dx + dy * dy < 1 / (whiteboardView.scale * whiteboardView.scale)) return;
+    points.push(point.x, point.y);
+    drawWhiteboard();
+  });
+
+  const endPointer = (event) => {
+    if (!whiteboardPointer) return;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    stage.classList.remove('panning');
+    if (whiteboardPointer.mode === 'draw' && whiteboardDraft) {
+      whiteboardBoard.strokes.push(whiteboardDraft);
+      whiteboardDraft = null;
+      scheduleWhiteboardSave();
+      renderWhiteboardChrome();
+    }
+    whiteboardPointer = null;
+    drawWhiteboard();
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  canvas.addEventListener('wheel', (event) => {
+    if (!whiteboardBoard) return;
+    event.preventDefault();
+    zoomWhiteboardAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+
+  input.addEventListener('input', resizeWhiteboardTextInput);
+  input.addEventListener('blur', () => { commitWhiteboardText(); });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      commitWhiteboardText();
+    }
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      commitWhiteboardText();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.code === 'Space' && !isTypingTarget(event.target) && projectViewMode === 'whiteboard') {
+      whiteboardSpaceHeld = true;
+      $('#whiteboardStage').dataset.tool = 'pan';
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z'
+      && projectViewMode === 'whiteboard' && !isTypingTarget(event.target)
+      && $('#projectsView').classList.contains('active')) {
+      event.preventDefault();
+      undoWhiteboard();
+    }
+  });
+  document.addEventListener('keyup', (event) => {
+    if (event.code !== 'Space') return;
+    whiteboardSpaceHeld = false;
+    $('#whiteboardStage').dataset.tool = whiteboardTool;
+  });
+
+  // The stage has no size while its view is hidden, so the canvas has to be
+  // re-measured whenever it becomes visible or the window changes.
+  new ResizeObserver(() => drawWhiteboard()).observe(stage);
+  window.addEventListener('beforeunload', () => { flushWhiteboardSave(); });
+}
+
+const WHITEBOARD_MIN_SCALE = 0.2;
+const WHITEBOARD_MAX_SCALE = 5;
+const WHITEBOARD_PEN_WIDTH = 2.5;
+const WHITEBOARD_TEXT_SIZE = 18;
+
+function whiteboardContext() {
+  return $('#whiteboardCanvas').getContext('2d');
+}
+
+// Screen pixels -> board coordinates. Everything is stored in board coordinates,
+// so pan and zoom never touch the data.
+function whiteboardToBoard(clientX, clientY) {
+  const rect = $('#whiteboardCanvas').getBoundingClientRect();
+  return {
+    x: (clientX - rect.left - whiteboardView.x) / whiteboardView.scale,
+    y: (clientY - rect.top - whiteboardView.y) / whiteboardView.scale
+  };
+}
+
+function resizeWhiteboardCanvas() {
+  const canvas = $('#whiteboardCanvas');
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.round(rect.width * ratio);
+  const height = Math.round(rect.height * ratio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return true;
+}
+
+function drawWhiteboard() {
+  if (!whiteboardBoard || !resizeWhiteboardCanvas()) return;
+  const canvas = $('#whiteboardCanvas');
+  const ctx = whiteboardContext();
+  const ratio = window.devicePixelRatio || 1;
+  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#111111';
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.translate(whiteboardView.x, whiteboardView.y);
+  ctx.scale(whiteboardView.scale, whiteboardView.scale);
+
+  drawWhiteboardGrid(ctx, canvas, ratio);
+
+  ctx.strokeStyle = ink;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const strokes = whiteboardDraft ? [...whiteboardBoard.strokes, whiteboardDraft] : whiteboardBoard.strokes;
+  for (const stroke of strokes) {
+    const points = stroke.points || [];
+    if (points.length < 2) continue;
+    ctx.lineWidth = stroke.width || WHITEBOARD_PEN_WIDTH;
+    ctx.beginPath();
+    ctx.moveTo(points[0], points[1]);
+    if (points.length === 2) ctx.lineTo(points[0] + 0.01, points[1]);
+    for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = ink;
+  ctx.textBaseline = 'top';
+  for (const item of whiteboardBoard.texts) {
+    if (whiteboardEditingText === item.id) continue;
+    const size = item.size || WHITEBOARD_TEXT_SIZE;
+    ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    item.text.split('\n').forEach((line, index) => {
+      ctx.fillText(line, item.x, item.y + index * size * 1.25);
+    });
+  }
+}
+
+// A faint dot grid: without it an empty infinite canvas gives no sense of
+// position, and panning looks like nothing is happening.
+function drawWhiteboardGrid(ctx, canvas, ratio) {
+  const step = 40;
+  const scale = whiteboardView.scale;
+  if (scale < 0.35) return;
+  const left = -whiteboardView.x / scale;
+  const top = -whiteboardView.y / scale;
+  const right = left + canvas.width / ratio / scale;
+  const bottom = top + canvas.height / ratio / scale;
+  ctx.save();
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--line').trim() || '#d9d9dc';
+  const radius = Math.max(0.6, 1 / scale);
+  for (let x = Math.floor(left / step) * step; x < right; x += step) {
+    for (let y = Math.floor(top / step) * step; y < bottom; y += step) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function renderWhiteboardChrome() {
+  $('#whiteboardZoom').textContent = `${Math.round(whiteboardView.scale * 100)}%`;
+  $('#whiteboardStage').dataset.tool = whiteboardTool;
+  $$('[data-whiteboard-tool]').forEach((button) => {
+    const on = button.dataset.whiteboardTool === whiteboardTool;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-pressed', String(on));
+  });
+  $('#whiteboardUndo').disabled = !whiteboardBoard
+    || (!whiteboardBoard.strokes.length && !whiteboardBoard.texts.length);
+}
+
+function setWhiteboardStatus(message) {
+  $('#whiteboardStatus').textContent = message;
+}
+
+function scheduleWhiteboardSave() {
+  if (!whiteboardBoard) return;
+  whiteboardBoard.updatedAt = Date.now();
+  setWhiteboardStatus('Saving...');
+  clearTimeout(whiteboardSaveTimer);
+  whiteboardSaveTimer = setTimeout(() => { flushWhiteboardSave(); }, 500);
+}
+
+function flushWhiteboardSave() {
+  if (!whiteboardBoard || !whiteboardDirty()) return whiteboardSaveQueue;
+  clearTimeout(whiteboardSaveTimer);
+  const snapshot = {
+    projectId: whiteboardBoard.projectId,
+    strokes: whiteboardBoard.strokes.slice(),
+    texts: whiteboardBoard.texts.slice(),
+    updatedAt: whiteboardBoard.updatedAt
+  };
+  whiteboardSaveQueue = whiteboardSaveQueue.catch(() => {}).then(async () => {
+    try {
+      await writeWhiteboard(snapshot);
+      whiteboardSavedAt = snapshot.updatedAt;
+      if (whiteboardBoard && whiteboardBoard.projectId === snapshot.projectId) {
+        setWhiteboardStatus(`Saved ${formatSaveTime(snapshot.updatedAt)}`);
+      }
+    } catch (error) {
+      setWhiteboardStatus('Not saved');
+      showToast(error.message);
+    }
+  });
+  return whiteboardSaveQueue;
+}
+
+function whiteboardDirty() {
+  return Boolean(whiteboardBoard) && whiteboardBoard.updatedAt !== whiteboardSavedAt;
+}
+
+function openWhiteboardDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WHITEBOARD_DATABASE, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(WHITEBOARD_STORE)) {
+        database.createObjectStore(WHITEBOARD_STORE, { keyPath: 'projectId' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Could not open whiteboard storage.'));
+  });
+}
+
+function emptyWhiteboard(projectId) {
+  return { projectId, strokes: [], texts: [], updatedAt: 0 };
+}
+
+async function readWhiteboard(projectId) {
+  const database = await openWhiteboardDatabase();
+  const board = await new Promise((resolve, reject) => {
+    const request = database.transaction(WHITEBOARD_STORE, 'readonly').objectStore(WHITEBOARD_STORE).get(projectId);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('Could not read the whiteboard.'));
+  });
+  database.close();
+  if (!board) return emptyWhiteboard(projectId);
+  return {
+    projectId,
+    strokes: Array.isArray(board.strokes) ? board.strokes : [],
+    texts: Array.isArray(board.texts) ? board.texts : [],
+    updatedAt: Number(board.updatedAt) || 0
+  };
+}
+
+async function writeWhiteboard(board) {
+  const database = await openWhiteboardDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(WHITEBOARD_STORE, 'readwrite');
+    transaction.objectStore(WHITEBOARD_STORE).put(board);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Could not save the whiteboard.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Saving the whiteboard was cancelled.'));
+  });
+  database.close();
+}
+
+async function deleteWhiteboard(projectId) {
+  const database = await openWhiteboardDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(WHITEBOARD_STORE, 'readwrite');
+    transaction.objectStore(WHITEBOARD_STORE).delete(projectId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Could not clear the whiteboard.'));
+  });
+  database.close();
 }
 
 function openMomentImageDatabase() {

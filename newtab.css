@@ -1526,3 +1526,53 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 .moment-session span:first-child { font-variant-numeric: tabular-nums; }
 .moment-session span:first-child:not(:empty) + span::before { content: '· '; opacity: .6; }
 .moment-session span:last-child { opacity: .85; }
+
+/* Project whiteboard */
+.whiteboard { display: flex; flex-direction: column; gap: 12px; }
+.whiteboard-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.whiteboard-tools { display: flex; border: 1px solid var(--line-dark); border-radius: 4px; overflow: hidden; }
+.whiteboard-tool {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-right: 1px solid var(--line-dark);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+}
+.whiteboard-tool:last-child { border-right: 0; }
+.whiteboard-tool.active { background: var(--ink); color: var(--paper); font-weight: 700; }
+.whiteboard-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.whiteboard-zoom { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.whiteboard-status { min-width: 96px; color: var(--muted); font-size: 12px; }
+.danger-text { color: var(--accent); }
+
+.whiteboard-stage {
+  position: relative;
+  height: min(66vh, 720px);
+  overflow: hidden;
+  border: 1px solid var(--line-dark);
+  background: var(--paper);
+  touch-action: none;
+}
+.whiteboard-stage canvas { display: block; width: 100%; height: 100%; }
+.whiteboard-stage[data-tool="pen"] canvas { cursor: crosshair; }
+.whiteboard-stage[data-tool="text"] canvas { cursor: text; }
+.whiteboard-stage[data-tool="pan"] canvas { cursor: grab; }
+.whiteboard-stage.panning canvas { cursor: grabbing; }
+
+.whiteboard-text-input {
+  position: absolute;
+  z-index: 2;
+  min-width: 160px;
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  line-height: 1.25;
+  resize: none;
+}
+.whiteboard-text-input:focus { outline: 0; }
+.whiteboard-hint { margin: 0; color: var(--muted); font-size: 12px; }

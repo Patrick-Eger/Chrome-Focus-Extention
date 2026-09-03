@@ -284,10 +284,32 @@
             <button class="active" data-project-view-mode="overview" type="button">Overview</button>
             <button data-project-view-mode="board" type="button">Board</button>
             <button data-project-view-mode="list" type="button">List</button>
+            <button data-project-view-mode="whiteboard" type="button">Whiteboard</button>
           </nav>
           <section id="projectOverview" class="project-subview"></section>
           <section id="projectBoard" class="project-subview hidden"></section>
           <section id="projectListView" class="project-subview hidden"></section>
+          <section id="projectWhiteboard" class="project-subview whiteboard hidden">
+            <div class="whiteboard-bar">
+              <div class="whiteboard-tools" role="radiogroup" aria-label="Whiteboard tool">
+                <button class="whiteboard-tool active" data-whiteboard-tool="pen" type="button" aria-pressed="true">Pen</button>
+                <button class="whiteboard-tool" data-whiteboard-tool="text" type="button" aria-pressed="false">Text</button>
+                <button class="whiteboard-tool" data-whiteboard-tool="pan" type="button" aria-pressed="false">Pan</button>
+              </div>
+              <div class="whiteboard-actions">
+                <button id="whiteboardUndo" class="text-button" type="button">Undo</button>
+                <button id="whiteboardReset" class="text-button" type="button">Reset view</button>
+                <span id="whiteboardZoom" class="whiteboard-zoom">100%</span>
+                <button id="whiteboardClear" class="text-button danger-text" type="button">Clear board</button>
+                <span id="whiteboardStatus" class="whiteboard-status" role="status"></span>
+              </div>
+            </div>
+            <div id="whiteboardStage" class="whiteboard-stage">
+              <canvas id="whiteboardCanvas"></canvas>
+              <textarea id="whiteboardTextInput" class="whiteboard-text-input hidden" rows="1" maxlength="2000" spellcheck="false"></textarea>
+            </div>
+            <p class="whiteboard-hint">Draw with the pen, click with Text to write, drag with Pan or hold Space. Scroll to zoom. Everything saves itself.</p>
+          </section>
         </div>
       </section>
 
