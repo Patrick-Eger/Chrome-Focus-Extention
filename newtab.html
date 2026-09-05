@@ -500,6 +500,19 @@
             <p id="obsidianSyncMessage" class="form-status" role="status"></p>
             <p id="settingsObsidianMessage" class="form-status" role="status"></p>
           </section>
+          <section class="settings-section data-settings">
+            <span class="eyebrow">Backup</span>
+            <h2>Your data</h2>
+            <p>Everything lives in this Chrome profile only. An export is the one way to move it to another machine or get it back after a reset.</p>
+            <div class="button-row">
+              <button id="exportData" class="button primary" type="button">Export everything</button>
+              <button id="importDataButton" class="button secondary" type="button">Import a backup</button>
+              <input id="importDataFile" type="file" accept="application/json,.json" class="hidden">
+            </div>
+            <label class="toggle-setting"><input id="exportIncludeImages" type="checkbox"><span><strong>Include Moment images</strong>Off by default: personal photos can make the file very large.</span></label>
+            <p id="dataStatus" class="form-status" role="status"></p>
+            <p class="data-note">The file holds projects, tasks, notes, the Inbox, day plans, reminders, workspaces, settings, and every project whiteboard. The connected Google account and its sync tokens are left out. Importing replaces everything currently in the extension.</p>
+          </section>
           <section class="settings-section appearance-settings">
             <span class="eyebrow">Interface appearance</span>
             <h2>Appearance</h2>

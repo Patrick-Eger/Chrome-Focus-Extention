@@ -1626,3 +1626,7 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 @media (prefers-reduced-motion: reduce) {
   .task-done-pulse { animation: none; }
 }
+
+.data-settings .button-row { margin-bottom: 12px; }
+.data-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.form-status.error { color: var(--accent); }

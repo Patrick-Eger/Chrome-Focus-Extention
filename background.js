@@ -449,6 +449,10 @@ async function handleMessage(message, sender) {
       return completeWorkBlock(message);
     case 'rolloverWorkBlock':
       return rolloverWorkBlock(message);
+    case 'exportData':
+      return exportData();
+    case 'importData':
+      return importData(message.payload);
     case 'completeTask':
       return completeTask(message.id);
     case 'completeReminder':
@@ -1744,6 +1748,68 @@ async function reconcileDueStandaloneReminders() {
       scheduledTime: standaloneReminderAt(reminder)
     });
   }
+}
+
+// Credentials-adjacent and re-derivable on the next sync, so they stay out of a
+// file the user may well hand to someone else.
+const EXPORT_EXCLUDED_KEYS = ['calendarSyncTokens', 'calendarAccount', 'calendarConnected'];
+
+async function exportData() {
+  await ensureInitialized();
+  const stored = await chrome.storage.local.get(null);
+  const data = {};
+  for (const [key, value] of Object.entries(stored)) {
+    if (!EXPORT_EXCLUDED_KEYS.includes(key)) data[key] = value;
+  }
+  return {
+    export: {
+      format: 'focus-desk-export',
+      formatVersion: 1,
+      exportedAt: Date.now(),
+      extensionVersion: chrome.runtime.getManifest().version,
+      storageVersion: STORAGE_VERSION,
+      data
+    }
+  };
+}
+
+async function importData(payload) {
+  await ensureInitialized();
+  if (!payload || payload.format !== 'focus-desk-export') {
+    throw new Error('That file is not a Focus Desk export.');
+  }
+  if (Number(payload.formatVersion) > 1) {
+    throw new Error('That export was written by a newer version of Focus Desk.');
+  }
+  const data = payload.data && typeof payload.data === 'object' ? payload.data : null;
+  if (!data) throw new Error('That export contains no data.');
+
+  // Run it through the same merge every start-up uses, so an older export is
+  // migrated rather than written in as-is.
+  const merged = mergeDefaults({
+    ...data,
+    // Never restore a live session or a blocking rule from a file.
+    focus: { ...DEFAULTS.focus },
+    temporaryAccess: {}
+  });
+  const current = await chrome.storage.local.get(null);
+  const removed = Object.keys(current).filter((key) => !(key in merged));
+  if (removed.length) await chrome.storage.local.remove(removed);
+  await chrome.storage.local.set(merged);
+
+  await updateBlockRule();
+  await syncWorkBlockAlarms();
+  await syncStandaloneReminderAlarms();
+  return {
+    counts: {
+      projects: merged.projects.length,
+      tasks: merged.tasks.length,
+      notes: merged.notes.length,
+      inboxItems: merged.inboxItems.length,
+      reminders: merged.reminders.length,
+      days: Object.keys(merged.dailyPlans).length
+    }
+  };
 }
 
 async function completeTask(taskId) {

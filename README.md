@@ -79,6 +79,7 @@ that block every website outside the active workspace allowlist.
   - state an intention
   - complete an open task
 - Temporary site access that expires automatically
+- Full JSON export and import of every local record, including whiteboards
 - Migration of existing whitelist lists and todos when this build uses the same
   Chrome extension ID as the original extension
 - Automatic v3 migration that keeps existing tasks and notes unassigned until they
@@ -96,6 +97,23 @@ that block every website outside the active workspace allowlist.
 
 All productivity data is stored in `chrome.storage.local`. No backend or account is
 required for the extension itself.
+
+## Backup: export and import
+
+**Settings > Your data** writes everything to a single JSON file: projects, tasks,
+notes, the Inbox, day plans, reminders, workspaces, flashcards, settings, and every
+project whiteboard. Moment images are opt-in, since inlining photos can make the
+file very large. The connected Google account and its sync tokens are deliberately
+left out - they are credentials-adjacent and are re-established by reconnecting.
+
+Importing replaces everything currently in the extension, after a confirmation that
+names the backup's date and size. The file is run through the same migration the
+extension performs at start-up, so an export from an older version is upgraded
+rather than written in as-is. A running focus session and any temporary site
+unlocks are never restored from a file.
+
+This is also the answer to moving between machines: export on one, import on the
+other.
 
 Personal Moment images are stored separately in the browser's IndexedDB storage so
 multiple large image files do not consume Chrome sync storage. Up to 30 images can
@@ -371,6 +389,7 @@ estimate for tasks without an estimate are configurable in Settings.
 ## Current boundaries
 
 - Data is local to this Chrome profile; cross-device/platform sync needs a backend.
+  Export and import move it between machines by hand.
 - Google Calendar access requires the extension owner's OAuth client ID. Background
   sync occurs while Chrome is running; Chrome alarms cannot wake a sleeping computer.
 - Workspace restore opens saved tabs without closing existing tabs.

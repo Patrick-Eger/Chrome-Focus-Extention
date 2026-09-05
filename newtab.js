@@ -4376,6 +4376,7 @@ async function removeObsidianVaultHandle() {
 
 function bindSettings() {
   bindDashboardLayoutSettings();
+  bindDataSettings();
   $('#settingsView').addEventListener('input', markSettingsFormDirty);
   $('#settingsView').addEventListener('change', markSettingsFormDirty);
   $('#momentOverlay').addEventListener('input', (event) => {
@@ -6419,6 +6420,178 @@ function flushWhiteboardSave() {
 
 function whiteboardDirty() {
   return Boolean(whiteboardBoard) && whiteboardBoard.updatedAt !== whiteboardSavedAt;
+}
+
+async function readAllWhiteboards() {
+  const database = await openWhiteboardDatabase();
+  const boards = await new Promise((resolve, reject) => {
+    const request = database.transaction(WHITEBOARD_STORE, 'readonly').objectStore(WHITEBOARD_STORE).getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('Could not read the whiteboards.'));
+  });
+  database.close();
+  return boards;
+}
+
+async function replaceAllWhiteboards(boards) {
+  const database = await openWhiteboardDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(WHITEBOARD_STORE, 'readwrite');
+    const store = transaction.objectStore(WHITEBOARD_STORE);
+    store.clear();
+    for (const board of boards || []) {
+      if (board && typeof board.projectId === 'string') store.put(board);
+    }
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Could not restore the whiteboards.'));
+  });
+  database.close();
+}
+
+async function readAllMomentImages() {
+  const database = await openMomentImageDatabase();
+  const images = await new Promise((resolve, reject) => {
+    const request = database.transaction('images', 'readonly').objectStore('images').getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('Could not read the image library.'));
+  });
+  database.close();
+  return images;
+}
+
+async function replaceAllMomentImages(images) {
+  const database = await openMomentImageDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction('images', 'readwrite');
+    const store = transaction.objectStore('images');
+    store.clear();
+    for (const image of images || []) {
+      if (image && image.blob) store.put(image);
+    }
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Could not restore the image library.'));
+  });
+  database.close();
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Could not read an image.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
+function setDataStatus(message, isError = false) {
+  const element = $('#dataStatus');
+  element.textContent = message;
+  element.classList.toggle('error', Boolean(isError));
+}
+
+async function exportEverything() {
+  setDataStatus('Collecting...');
+  const response = await send('exportData');
+  const payload = response.export;
+  payload.whiteboards = await readAllWhiteboards();
+
+  if ($('#exportIncludeImages').checked) {
+    const images = await readAllMomentImages();
+    // Blobs do not survive JSON; inline them, which is why this is opt-in.
+    payload.momentImages = await Promise.all(images.map(async (image) => ({
+      id: image.id,
+      name: image.name,
+      type: image.type,
+      addedAt: image.addedAt,
+      dataUrl: await blobToDataUrl(image.blob)
+    })));
+  }
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `focus-desk-${dateKeyFromDate(new Date())}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+  const size = json.length > 1048576
+    ? `${(json.length / 1048576).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(json.length / 1024))} KB`;
+  setDataStatus(`Exported ${size}, including ${payload.whiteboards.length} whiteboard${payload.whiteboards.length === 1 ? '' : 's'}.`);
+}
+
+async function importEverything(file) {
+  setDataStatus('Reading...');
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch (_) {
+    setDataStatus('That file is not valid JSON.', true);
+    return;
+  }
+  if (!payload || payload.format !== 'focus-desk-export') {
+    setDataStatus('That file is not a Focus Desk export.', true);
+    return;
+  }
+
+  const when = payload.exportedAt ? new Date(payload.exportedAt).toLocaleString() : 'an unknown date';
+  const counts = payload.data || {};
+  const summary = [
+    `${(counts.projects || []).length} projects`,
+    `${(counts.tasks || []).length} tasks`,
+    `${(counts.notes || []).length} notes`
+  ].join(', ');
+  if (!confirm(`Replace everything in Focus Desk with this backup from ${when}?\n\nIt contains ${summary}.\n\nYour current data will be gone.`)) {
+    setDataStatus('');
+    return;
+  }
+
+  setDataStatus('Importing...');
+  try {
+    const result = await send('importData', { payload });
+    await replaceAllWhiteboards(payload.whiteboards);
+    if (Array.isArray(payload.momentImages)) {
+      await replaceAllMomentImages(await Promise.all(payload.momentImages.map(async (image) => ({
+        id: image.id,
+        name: image.name,
+        type: image.type,
+        size: 0,
+        addedAt: image.addedAt,
+        blob: await dataUrlToBlob(image.dataUrl)
+      }))));
+    }
+    whiteboardBoard = null;
+    await loadState();
+    const c = result.counts;
+    setDataStatus(`Imported ${c.projects} projects, ${c.tasks} tasks, ${c.notes} notes, ${c.days} planned days.`);
+  } catch (error) {
+    setDataStatus(error.message, true);
+  }
+}
+
+function bindDataSettings() {
+  $('#exportData').addEventListener('click', async () => {
+    try {
+      await exportEverything();
+    } catch (error) {
+      setDataStatus(error.message, true);
+    }
+  });
+  $('#importDataButton').addEventListener('click', () => $('#importDataFile').click());
+  $('#importDataFile').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (file) await importEverything(file);
+  });
 }
 
 function openWhiteboardDatabase() {
