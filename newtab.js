@@ -63,6 +63,8 @@ let whiteboardCursor = null;
 let whiteboardErasedAny = false;
 let whiteboardResizeObserver = null;
 let whiteboardRedrawTimer = null;
+let whiteboardShapeDraft = null;
+let whiteboardSelection = null;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -5538,8 +5540,9 @@ async function renderProjectWhiteboard(project) {
 
 function setWhiteboardTool(tool) {
   commitWhiteboardText();
-  whiteboardTool = ['pen', 'text', 'pan', 'eraser'].includes(tool) ? tool : 'pen';
+  whiteboardTool = ['pen', 'text', 'pan', 'eraser', 'shape', 'select'].includes(tool) ? tool : 'pen';
   whiteboardCursor = null;
+  if (whiteboardTool !== 'select') whiteboardSelection = null;
   renderWhiteboardChrome();
 }
 
@@ -5555,6 +5558,108 @@ function zoomWhiteboardAt(clientX, clientY, factor) {
   whiteboardView.scale = next;
   renderWhiteboardChrome();
   drawWhiteboard();
+}
+
+// One list across all three arrays, newest last. Used for drawing (so later work
+// sits on top) and, reversed, for hit testing (so the topmost item is picked).
+function whiteboardItems() {
+  const items = [
+    ...whiteboardBoard.strokes.map((item) => ({ type: 'stroke', item })),
+    ...whiteboardBoard.shapes.map((item) => ({ type: 'shape', item })),
+    ...whiteboardBoard.texts.map((item) => ({ type: 'text', item }))
+  ];
+  items.sort((a, b) => (a.item.createdAt || 0) - (b.item.createdAt || 0));
+  return items;
+}
+
+function whiteboardCollection(type) {
+  if (type === 'stroke') return whiteboardBoard.strokes;
+  if (type === 'shape') return whiteboardBoard.shapes;
+  return whiteboardBoard.texts;
+}
+
+function normalizedShapeBox(shape) {
+  return {
+    x: Math.min(shape.x, shape.x + shape.w),
+    y: Math.min(shape.y, shape.y + shape.h),
+    width: Math.abs(shape.w),
+    height: Math.abs(shape.h)
+  };
+}
+
+function measureWhiteboardText(item) {
+  const ctx = whiteboardContext();
+  const size = item.size || WHITEBOARD_TEXT_SIZE;
+  ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  const lines = String(item.text || '').split('\n');
+  return {
+    x: item.x,
+    y: item.y,
+    width: Math.max(...lines.map((line) => ctx.measureText(line).width), 40),
+    height: lines.length * size * 1.25
+  };
+}
+
+function whiteboardItemBounds(type, item) {
+  if (type === 'text') return measureWhiteboardText(item);
+  if (type === 'shape') return normalizedShapeBox(item);
+  const points = item.points || [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    if (points[i] < minX) minX = points[i];
+    if (points[i] > maxX) maxX = points[i];
+    if (points[i + 1] < minY) minY = points[i + 1];
+    if (points[i + 1] > maxY) maxY = points[i + 1];
+  }
+  if (minX === Infinity) return { x: 0, y: 0, width: 0, height: 0 };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function shapeTouchesPoint(shape, point, radius) {
+  const box = normalizedShapeBox(shape);
+  if (shape.kind === 'line' || shape.kind === 'arrow') {
+    return segmentDistanceSquared(point.x, point.y, shape.x, shape.y, shape.x + shape.w, shape.y + shape.h)
+      <= radius * radius;
+  }
+  // Outlines, so only the edge counts - clicking the hollow middle of a big
+  // rectangle should not grab it.
+  const outside = point.x < box.x - radius || point.x > box.x + box.width + radius
+    || point.y < box.y - radius || point.y > box.y + box.height + radius;
+  if (outside) return false;
+  const inside = point.x > box.x + radius && point.x < box.x + box.width - radius
+    && point.y > box.y + radius && point.y < box.y + box.height - radius;
+  return !inside;
+}
+
+function whiteboardItemAt(point, radius) {
+  const items = whiteboardItems();
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const { type, item } = items[i];
+    if (type === 'stroke' && strokeTouchesPoint(item, point, radius)) return items[i];
+    if (type === 'shape' && shapeTouchesPoint(item, point, radius)) return items[i];
+    if (type === 'text') {
+      const box = measureWhiteboardText(item);
+      if (point.x >= box.x - 4 && point.x <= box.x + box.width + 4
+        && point.y >= box.y - 4 && point.y <= box.y + box.height + 4) return items[i];
+    }
+  }
+  return null;
+}
+
+function moveWhiteboardItem(type, item, dx, dy) {
+  if (type === 'stroke') {
+    const points = item.points;
+    for (let i = 0; i + 1 < points.length; i += 2) {
+      points[i] += dx;
+      points[i + 1] += dy;
+    }
+    return;
+  }
+  item.x += dx;
+  item.y += dy;
 }
 
 // Squared distance from a point to a segment; used to decide whether the eraser
@@ -5600,25 +5705,27 @@ function eraseWhiteboardAt(point) {
       removed = true;
     }
   }
+  for (let i = whiteboardBoard.shapes.length - 1; i >= 0; i -= 1) {
+    if (shapeTouchesPoint(whiteboardBoard.shapes[i], point, radius)) {
+      whiteboardBoard.shapes.splice(i, 1);
+      removed = true;
+    }
+  }
   const text = whiteboardTextAt(point);
   if (text) {
     whiteboardBoard.texts = whiteboardBoard.texts.filter((item) => item.id !== text.id);
     removed = true;
   }
+  if (removed) whiteboardSelection = null;
   return removed;
 }
 
 function whiteboardTextAt(point) {
-  const ctx = whiteboardContext();
   for (let i = whiteboardBoard.texts.length - 1; i >= 0; i -= 1) {
     const item = whiteboardBoard.texts[i];
-    const size = item.size || WHITEBOARD_TEXT_SIZE;
-    ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    const lines = item.text.split('\n');
-    const width = Math.max(...lines.map((line) => ctx.measureText(line).width), 40);
-    const height = lines.length * size * 1.25;
-    if (point.x >= item.x - 4 && point.x <= item.x + width + 4
-      && point.y >= item.y - 4 && point.y <= item.y + height + 4) return item;
+    const box = measureWhiteboardText(item);
+    if (point.x >= box.x - 4 && point.x <= box.x + box.width + 4
+      && point.y >= box.y - 4 && point.y <= box.y + box.height + 4) return item;
   }
   return null;
 }
@@ -5686,13 +5793,18 @@ function commitWhiteboardText() {
 
 function undoWhiteboard() {
   if (!whiteboardBoard) return;
-  const lastStroke = whiteboardBoard.strokes[whiteboardBoard.strokes.length - 1];
-  const lastText = whiteboardBoard.texts[whiteboardBoard.texts.length - 1];
-  if (!lastStroke && !lastText) return;
-  const strokeAt = lastStroke ? lastStroke.createdAt || 0 : -1;
-  const textAt = lastText ? lastText.createdAt || 0 : -1;
-  if (strokeAt >= textAt) whiteboardBoard.strokes.pop();
-  else whiteboardBoard.texts.pop();
+  const items = whiteboardItems();
+  const newest = items[items.length - 1];
+  if (!newest) return;
+  removeWhiteboardItem(newest.type, newest.item.id);
+}
+
+function removeWhiteboardItem(type, id) {
+  const list = whiteboardCollection(type);
+  const index = list.findIndex((entry) => entry.id === id);
+  if (index < 0) return;
+  list.splice(index, 1);
+  if (whiteboardSelection && whiteboardSelection.id === id) whiteboardSelection = null;
   scheduleWhiteboardSave();
   renderWhiteboardChrome();
   drawWhiteboard();
@@ -5772,6 +5884,33 @@ function bindWhiteboard() {
       );
       return;
     }
+    if (whiteboardTool === 'shape') {
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      whiteboardShapeDraft = {
+        id: createId('wbshape'),
+        kind: $('#whiteboardShapeKind').value || 'rect',
+        x: point.x,
+        y: point.y,
+        w: 0,
+        h: 0,
+        width: WHITEBOARD_PEN_WIDTH,
+        createdAt: Date.now()
+      };
+      whiteboardPointer = { mode: 'shape' };
+      drawWhiteboard();
+      return;
+    }
+    if (whiteboardTool === 'select') {
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      const hit = whiteboardItemAt(point, WHITEBOARD_PICK_RADIUS / whiteboardView.scale);
+      whiteboardSelection = hit ? { type: hit.type, id: hit.item.id } : null;
+      whiteboardPointer = hit
+        ? { mode: 'move', x: point.x, y: point.y, moved: false }
+        : { mode: 'idle' };
+      renderWhiteboardChrome();
+      drawWhiteboard();
+      return;
+    }
     const point = whiteboardToBoard(event.clientX, event.clientY);
     whiteboardDraft = { id: createId('wbstroke'), width: WHITEBOARD_PEN_WIDTH, points: [point.x, point.y], createdAt: Date.now() };
     whiteboardPointer = { mode: 'draw' };
@@ -5799,6 +5938,35 @@ function bindWhiteboard() {
       drawWhiteboard();
       return;
     }
+    if (whiteboardPointer.mode === 'shape' && whiteboardShapeDraft) {
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      whiteboardShapeDraft.w = point.x - whiteboardShapeDraft.x;
+      whiteboardShapeDraft.h = point.y - whiteboardShapeDraft.y;
+      // Shift constrains: a square, a circle, or a straight line.
+      if (event.shiftKey) {
+        if (whiteboardShapeDraft.kind === 'line' || whiteboardShapeDraft.kind === 'arrow') {
+          if (Math.abs(whiteboardShapeDraft.w) > Math.abs(whiteboardShapeDraft.h)) whiteboardShapeDraft.h = 0;
+          else whiteboardShapeDraft.w = 0;
+        } else {
+          const size = Math.max(Math.abs(whiteboardShapeDraft.w), Math.abs(whiteboardShapeDraft.h));
+          whiteboardShapeDraft.w = Math.sign(whiteboardShapeDraft.w || 1) * size;
+          whiteboardShapeDraft.h = Math.sign(whiteboardShapeDraft.h || 1) * size;
+        }
+      }
+      drawWhiteboard();
+      return;
+    }
+    if (whiteboardPointer.mode === 'move') {
+      const found = findWhiteboardSelection();
+      if (!found) return;
+      const point = whiteboardToBoard(event.clientX, event.clientY);
+      moveWhiteboardItem(found.type, found.item, point.x - whiteboardPointer.x, point.y - whiteboardPointer.y);
+      whiteboardPointer.x = point.x;
+      whiteboardPointer.y = point.y;
+      whiteboardPointer.moved = true;
+      drawWhiteboard();
+      return;
+    }
     if (!whiteboardDraft) return;
     const point = whiteboardToBoard(event.clientX, event.clientY);
     const points = whiteboardDraft.points;
@@ -5819,6 +5987,20 @@ function bindWhiteboard() {
       whiteboardDraft = null;
       scheduleWhiteboardSave();
       renderWhiteboardChrome();
+    }
+    if (whiteboardPointer.mode === 'shape' && whiteboardShapeDraft) {
+      const draft = whiteboardShapeDraft;
+      whiteboardShapeDraft = null;
+      // A click without a drag would leave an invisible zero-size shape behind.
+      if (Math.abs(draft.w) >= 2 || Math.abs(draft.h) >= 2) {
+        whiteboardBoard.shapes.push(draft);
+        scheduleWhiteboardSave();
+        renderWhiteboardChrome();
+      }
+    }
+    if (whiteboardPointer.mode === 'move' && whiteboardPointer.moved) {
+      // One save for the whole drag, not one per pointermove.
+      scheduleWhiteboardSave();
     }
     if (whiteboardPointer.mode === 'erase' && whiteboardErasedAny) {
       // One save for the whole swipe, not one per stroke it crossed.
@@ -5861,6 +6043,13 @@ function bindWhiteboard() {
       whiteboardSpaceHeld = true;
       $('#whiteboardStage').dataset.tool = 'pan';
     }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && whiteboardSelection
+      && projectViewMode === 'whiteboard' && !isTypingTarget(event.target)
+      && $('#projectsView').classList.contains('active')) {
+      event.preventDefault();
+      removeWhiteboardItem(whiteboardSelection.type, whiteboardSelection.id);
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z'
       && projectViewMode === 'whiteboard' && !isTypingTarget(event.target)
       && $('#projectsView').classList.contains('active')) {
@@ -5889,6 +6078,7 @@ const WHITEBOARD_MAX_SCALE = 5;
 const WHITEBOARD_PEN_WIDTH = 2.5;
 const WHITEBOARD_TEXT_SIZE = 18;
 const WHITEBOARD_ERASER_RADIUS = 14;
+const WHITEBOARD_PICK_RADIUS = 8;
 
 function whiteboardContext() {
   return $('#whiteboardCanvas').getContext('2d');
@@ -5934,18 +6124,33 @@ function drawWhiteboard() {
   drawWhiteboardGrid(ctx, canvas, ratio);
 
   ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const strokes = whiteboardDraft ? [...whiteboardBoard.strokes, whiteboardDraft] : whiteboardBoard.strokes;
-  for (const stroke of strokes) {
-    const points = stroke.points || [];
-    if (points.length < 2) continue;
-    ctx.lineWidth = stroke.width || WHITEBOARD_PEN_WIDTH;
-    ctx.beginPath();
-    ctx.moveTo(points[0], points[1]);
-    if (points.length === 2) ctx.lineTo(points[0] + 0.01, points[1]);
-    for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
-    ctx.stroke();
+  ctx.textBaseline = 'top';
+
+  // Drawn oldest first, so anything added later covers what came before.
+  const items = whiteboardItems();
+  if (whiteboardDraft) items.push({ type: 'stroke', item: whiteboardDraft });
+  if (whiteboardShapeDraft) items.push({ type: 'shape', item: whiteboardShapeDraft });
+  for (const { type, item } of items) {
+    if (type === 'stroke') drawWhiteboardStroke(ctx, item);
+    else if (type === 'shape') drawWhiteboardShape(ctx, item);
+    else if (whiteboardEditingText !== item.id) drawWhiteboardText(ctx, item);
+  }
+
+  if (whiteboardSelection) {
+    const found = findWhiteboardSelection();
+    if (found) {
+      const box = whiteboardItemBounds(found.type, found.item);
+      const pad = 6 / whiteboardView.scale;
+      ctx.save();
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e4002b';
+      ctx.lineWidth = 1.5 / whiteboardView.scale;
+      ctx.setLineDash([6 / whiteboardView.scale, 4 / whiteboardView.scale]);
+      ctx.strokeRect(box.x - pad, box.y - pad, box.width + pad * 2, box.height + pad * 2);
+      ctx.restore();
+    }
   }
 
   if (whiteboardTool === 'eraser' && whiteboardCursor) {
@@ -5959,16 +6164,68 @@ function drawWhiteboard() {
     ctx.restore();
   }
 
-  ctx.fillStyle = ink;
-  ctx.textBaseline = 'top';
-  for (const item of whiteboardBoard.texts) {
-    if (whiteboardEditingText === item.id) continue;
-    const size = item.size || WHITEBOARD_TEXT_SIZE;
-    ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    item.text.split('\n').forEach((line, index) => {
-      ctx.fillText(line, item.x, item.y + index * size * 1.25);
-    });
+}
+
+function drawWhiteboardStroke(ctx, stroke) {
+  const points = stroke.points || [];
+  if (points.length < 2) return;
+  ctx.lineWidth = stroke.width || WHITEBOARD_PEN_WIDTH;
+  ctx.beginPath();
+  ctx.moveTo(points[0], points[1]);
+  if (points.length === 2) ctx.lineTo(points[0] + 0.01, points[1]);
+  for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+  ctx.stroke();
+}
+
+function drawWhiteboardShape(ctx, shape) {
+  const box = normalizedShapeBox(shape);
+  ctx.lineWidth = shape.width || WHITEBOARD_PEN_WIDTH;
+  ctx.beginPath();
+  if (shape.kind === 'ellipse') {
+    ctx.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
   }
+  if (shape.kind === 'line' || shape.kind === 'arrow') {
+    const x2 = shape.x + shape.w;
+    const y2 = shape.y + shape.h;
+    ctx.moveTo(shape.x, shape.y);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    if (shape.kind === 'arrow') drawWhiteboardArrowHead(ctx, shape.x, shape.y, x2, y2);
+    return;
+  }
+  ctx.rect(box.x, box.y, box.width, box.height);
+  ctx.stroke();
+}
+
+function drawWhiteboardArrowHead(ctx, x1, y1, x2, y2) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  if (length < 1) return;
+  const head = Math.min(16, length * 0.4);
+  const spread = Math.PI / 7;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(angle - spread), y2 - head * Math.sin(angle - spread));
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - head * Math.cos(angle + spread), y2 - head * Math.sin(angle + spread));
+  ctx.stroke();
+}
+
+function drawWhiteboardText(ctx, item) {
+  const size = item.size || WHITEBOARD_TEXT_SIZE;
+  ctx.font = `300 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  String(item.text || '').split('\n').forEach((line, index) => {
+    ctx.fillText(line, item.x, item.y + index * size * 1.25);
+  });
+}
+
+function findWhiteboardSelection() {
+  if (!whiteboardSelection) return null;
+  const item = whiteboardCollection(whiteboardSelection.type)
+    .find((entry) => entry.id === whiteboardSelection.id);
+  return item ? { type: whiteboardSelection.type, item } : null;
 }
 
 // A faint dot grid: without it an empty infinite canvas gives no sense of
@@ -6006,14 +6263,14 @@ function redrawWhiteboardSoon() {
 
 function renderWhiteboardChrome() {
   $('#whiteboardZoom').textContent = `${Math.round(whiteboardView.scale * 100)}%`;
+  $('#whiteboardShapeKind').classList.toggle('hidden', whiteboardTool !== 'shape');
   $('#whiteboardStage').dataset.tool = whiteboardTool;
   $$('[data-whiteboard-tool]').forEach((button) => {
     const on = button.dataset.whiteboardTool === whiteboardTool;
     button.classList.toggle('active', on);
     button.setAttribute('aria-pressed', String(on));
   });
-  $('#whiteboardUndo').disabled = !whiteboardBoard
-    || (!whiteboardBoard.strokes.length && !whiteboardBoard.texts.length);
+  $('#whiteboardUndo').disabled = !whiteboardBoard || !whiteboardItems().length;
 }
 
 function setWhiteboardStatus(message) {
@@ -6034,6 +6291,7 @@ function flushWhiteboardSave() {
   const snapshot = {
     projectId: whiteboardBoard.projectId,
     strokes: whiteboardBoard.strokes.slice(),
+    shapes: whiteboardBoard.shapes.slice(),
     texts: whiteboardBoard.texts.slice(),
     updatedAt: whiteboardBoard.updatedAt
   };
@@ -6071,7 +6329,7 @@ function openWhiteboardDatabase() {
 }
 
 function emptyWhiteboard(projectId) {
-  return { projectId, strokes: [], texts: [], updatedAt: 0 };
+  return { projectId, strokes: [], shapes: [], texts: [], updatedAt: 0 };
 }
 
 async function readWhiteboard(projectId) {
@@ -6086,6 +6344,8 @@ async function readWhiteboard(projectId) {
   return {
     projectId,
     strokes: Array.isArray(board.strokes) ? board.strokes : [],
+    // Boards written before shapes existed simply have no such array.
+    shapes: Array.isArray(board.shapes) ? board.shapes : [],
     texts: Array.isArray(board.texts) ? board.texts : [],
     updatedAt: Number(board.updatedAt) || 0
   };

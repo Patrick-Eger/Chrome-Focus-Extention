@@ -293,10 +293,18 @@
             <div class="whiteboard-bar">
               <div class="whiteboard-tools" role="radiogroup" aria-label="Whiteboard tool">
                 <button class="whiteboard-tool active" data-whiteboard-tool="pen" type="button" aria-pressed="true">Pen</button>
+                <button class="whiteboard-tool" data-whiteboard-tool="shape" type="button" aria-pressed="false">Shape</button>
                 <button class="whiteboard-tool" data-whiteboard-tool="text" type="button" aria-pressed="false">Text</button>
                 <button class="whiteboard-tool" data-whiteboard-tool="eraser" type="button" aria-pressed="false">Eraser</button>
+                <button class="whiteboard-tool" data-whiteboard-tool="select" type="button" aria-pressed="false">Select</button>
                 <button class="whiteboard-tool" data-whiteboard-tool="pan" type="button" aria-pressed="false">Pan</button>
               </div>
+              <select id="whiteboardShapeKind" class="whiteboard-shape-kind hidden" aria-label="Shape">
+                <option value="rect">Rectangle</option>
+                <option value="ellipse">Ellipse</option>
+                <option value="line">Line</option>
+                <option value="arrow">Arrow</option>
+              </select>
               <div class="whiteboard-actions">
                 <button id="whiteboardUndo" class="text-button" type="button">Undo</button>
                 <button id="whiteboardReset" class="text-button" type="button">Reset view</button>
@@ -310,7 +318,7 @@
               <canvas id="whiteboardCanvas"></canvas>
               <textarea id="whiteboardTextInput" class="whiteboard-text-input hidden" rows="1" maxlength="2000" spellcheck="false"></textarea>
             </div>
-            <p class="whiteboard-hint">Draw with the pen, click with Text to write, brush over something with the Eraser to remove it, drag with Pan or hold Space. Scroll to zoom. Everything saves itself.</p>
+            <p class="whiteboard-hint">Pen draws, Shape drags out a rectangle, ellipse, line or arrow, Text writes, Select moves what is already there (Delete removes it), Eraser wipes, Pan or held Space scrolls. Scroll to zoom. Everything saves itself.</p>
           </section>
         </div>
       </section>

@@ -1591,3 +1591,7 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
   min-height: 0;
 }
 #projectWhiteboard:fullscreen .whiteboard-hint { flex: 0 0 auto; }
+
+.whiteboard-shape-kind { min-height: 34px; border: 1px solid var(--line-dark); border-radius: 4px; background: var(--paper); color: var(--ink); padding: 0 8px; font-size: 13px; }
+.whiteboard-stage[data-tool="shape"] canvas { cursor: crosshair; }
+.whiteboard-stage[data-tool="select"] canvas { cursor: default; }

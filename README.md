@@ -53,8 +53,9 @@ that block every website outside the active workspace allowlist.
 - Project link libraries with site favicons for saving and reopening useful
   websites and resources, including one-click opening of every project link
 - Project task groups plus Overview, five-stage Kanban, and grouped List views
-- A whiteboard per project on an infinite canvas with a pen, an eraser, text, and a
-  fullscreen view, saving itself as you draw
+- A whiteboard per project on an infinite canvas with a pen, shapes, text, an
+  eraser, a select tool for moving things afterwards, and a fullscreen view,
+  saving itself as you draw
 - Rich tasks with project/group relationships, Markdown details, labels, estimates,
   due and planned dates, priorities, and subtasks
 - Searchable Markdown notes with a full editor, sanitized preview, and automatic saving
@@ -277,11 +278,21 @@ movement legible.
 **Fullscreen** at the right of the bar hands the whole screen to the board, toolbar
 included; the button and Escape both leave it again.
 
-**Pen** draws freehand and **Text** places a box wherever you click; clicking an
-existing text reopens it, and emptying one removes it. **Eraser** removes whatever
-it touches - brush across several strokes and they all go, and a ring shows its
-reach. It works per item rather than per pixel: a stroke or a text box is removed
-whole, never cut in half. Text takes multiple lines,
+**Pen** draws freehand. **Shape** drags out a rectangle, ellipse, line or arrow -
+the picker beside the tools chooses which, and holding Shift constrains it to a
+square, a circle or a straight line. Shapes are outlines, so only their edge is
+clickable and a large rectangle does not swallow everything behind it. **Text**
+places a box wherever you click; clicking an existing text reopens it, and emptying
+one removes it.
+
+**Select** picks up whatever is under the cursor - a shape, a text, or a pen stroke
+- and drags it somewhere else; Delete or Backspace removes it. When items overlap,
+the most recently added one wins, which is also the one drawn on top. A drag is one
+save, however far it goes.
+
+**Eraser** removes whatever it touches - brush across several strokes and they all
+go, and a ring shows its reach. It works per item rather than per pixel: a stroke,
+shape or text box is removed whole, never cut in half. Text takes multiple lines,
 Escape or Cmd/Ctrl+Enter commits it. The pen follows the interface text colour, so
 it stays readable in dark mode. **Undo** removes the most recent stroke or text
 (also Cmd/Ctrl+Z), and **Clear board** empties the whole canvas after a
