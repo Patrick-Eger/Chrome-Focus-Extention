@@ -1595,3 +1595,34 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 .whiteboard-shape-kind { min-height: 34px; border: 1px solid var(--line-dark); border-radius: 4px; background: var(--paper); color: var(--ink); padding: 0 8px; font-size: 13px; }
 .whiteboard-stage[data-tool="shape"] canvas { cursor: crosshair; }
 .whiteboard-stage[data-tool="select"] canvas { cursor: default; }
+
+/* Finished-task burst */
+.task-burst {
+  position: fixed;
+  z-index: 90;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.task-burst i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--task-burst-size, 6px);
+  height: var(--task-burst-size, 6px);
+  border-radius: 50%;
+  background: var(--accent);
+}
+.task-burst i:nth-child(3n) { background: var(--ink); }
+.task-burst i:nth-child(4n) { border-radius: 1px; }
+
+@keyframes task-done-pulse {
+  0% { background-color: transparent; }
+  30% { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+  100% { background-color: transparent; }
+}
+.task-done-pulse { animation: task-done-pulse 700ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .task-done-pulse { animation: none; }
+}

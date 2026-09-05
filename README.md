@@ -25,6 +25,7 @@ that block every website outside the active workspace allowlist.
 - Workspace-specific website allowlists, including localhost, private IP
   addresses, and other single-name hosts for local development
 - Optional site blocking: a focus session can run as a timer only
+- A burst and a short chime when a task is finished, both switchable
 - Remaining session time on the Moment screen
 - Workspace favorites with quick capture from the extension popup
 - Global search across projects, tasks, notes, flashcards, Inbox items, reminders,
@@ -169,6 +170,12 @@ the last exported version. Files changed in Obsidian are left untouched and the
 project is marked for review; replacing them requires explicit confirmation.
 
 ## Important behavior
+
+Finishing a task sets off a small burst of particles where you ticked it and plays
+a two-note chime. **Celebrate finished tasks** and **Play a sound with it** in
+Settings turn each off separately, and the burst is skipped for anyone whose system
+asks for reduced motion. It fires on the way to done only, never on reopening, and
+the sound is synthesised rather than shipped as an audio file.
 
 **Block sites during focus** in Settings decides whether a session blocks anything.
 With it off, focus still runs the timer, the workspace, and any linked work block,

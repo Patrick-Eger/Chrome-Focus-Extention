@@ -59,6 +59,8 @@ const DEFAULTS = {
   reminders: [],
   settings: {
     focusBlocksSites: true,
+    celebrateTasks: true,
+    celebrateTasksSound: true,
     gateType: 'math',
     unlockMinutes: 15,
     defaultFocusMinutes: 25,
@@ -2014,6 +2016,8 @@ function normalizeSettings(settings) {
     dashboardShowTaskBank: settings.dashboardShowTaskBank !== false,
     dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
     focusBlocksSites: settings.focusBlocksSites !== false,
+    celebrateTasks: settings.celebrateTasks !== false,
+    celebrateTasksSound: settings.celebrateTasksSound !== false,
     momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
     dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)

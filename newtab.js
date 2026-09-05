@@ -65,6 +65,7 @@ let whiteboardResizeObserver = null;
 let whiteboardRedrawTimer = null;
 let whiteboardShapeDraft = null;
 let whiteboardSelection = null;
+let taskAudioContext = null;
 const openInboxItems = new Set();
 const openNoteWorkspaceFolders = new Set();
 const openNoteProjectFolders = new Set();
@@ -2364,9 +2365,11 @@ function bindProjects() {
     const id = event.dataTransfer.getData('text/plain');
     const status = column.dataset.boardStatus;
     if (!TASK_STATUSES.includes(status)) return;
-    const tasks = state.tasks.map((task) => task.id === id
-      ? { ...task, status, completed: status === 'done', updatedAt: Date.now() }
-      : task);
+    const previous = state.tasks.find((task) => task.id === id);
+    const tasks = state.tasks.map((task) => (task.id === id
+      ? withTaskCompletion(task, status === 'done', status)
+      : task));
+    if (status === 'done' && previous && !previous.completed) celebrateTaskCompletion(column);
     await save({ tasks });
   });
 
@@ -2752,6 +2755,7 @@ async function saveDrawerTask(event) {
     estimateMinutes: clamp($('#drawerTaskEstimate').value, 0, 1440, 0),
     labels: Array.from(new Set($('#drawerTaskLabels').value.split(',').map((label) => label.trim()).filter(Boolean))).slice(0, 12),
     subtasks: drawerSubtasks,
+    completedAt: status === 'done' ? existing?.completedAt || now : null,
     completed: status === 'done',
     createdAt: existing?.createdAt || now,
     updatedAt: now
@@ -2759,6 +2763,8 @@ async function saveDrawerTask(event) {
   const tasks = existing
     ? state.tasks.map((item) => item.id === task.id ? task : item)
     : [task, ...state.tasks];
+  const newlyDone = status === 'done' && !(existing && existing.completed);
+  if (newlyDone) celebrateTaskCompletion($('#drawerTaskStatus'));
   await save({ tasks });
   closeTaskDrawer();
   showToast(existing ? 'Task updated.' : 'Task created.');
@@ -2784,6 +2790,101 @@ function getProject(id) {
 
 function getProjectGroup(id) {
   return state?.projectGroups?.find((group) => group.id === id) || null;
+}
+
+// One place that decides what "done" means on a task. Three of the four completion
+// paths used to forget completedAt, which the Moment todo panel filters on.
+function withTaskCompletion(task, completed, statusOverride) {
+  const now = Date.now();
+  const status = statusOverride
+    || (completed ? 'done' : task.status === 'done' ? 'backlog' : normalizedTaskStatus(task));
+  return {
+    ...task,
+    completed,
+    status,
+    completedAt: completed ? task.completedAt || now : null,
+    updatedAt: now
+  };
+}
+
+function celebrateTaskCompletion(anchor) {
+  if (!state || state.settings.celebrateTasks === false) return;
+  burstTaskConfetti(anchor);
+  if (state.settings.celebrateTasksSound !== false) playTaskChime();
+}
+
+function burstTaskConfetti(anchor) {
+  if (!anchor || !anchor.getBoundingClientRect) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const rect = anchor.getBoundingClientRect();
+  if (!rect.width && !rect.height) return;
+  const originX = rect.left + rect.width / 2;
+  const originY = rect.top + rect.height / 2;
+  const layer = document.createElement('div');
+  layer.className = 'task-burst';
+  layer.style.left = `${originX}px`;
+  layer.style.top = `${originY}px`;
+  document.body.appendChild(layer);
+
+  let running = TASK_BURST_PARTICLES;
+  for (let i = 0; i < TASK_BURST_PARTICLES; i += 1) {
+    const particle = document.createElement('i');
+    // Spread around a full circle with a little jitter, so it reads as a burst
+    // rather than a rotating fan.
+    const angle = (i / TASK_BURST_PARTICLES) * Math.PI * 2 + Math.random() * 0.5;
+    const distance = 26 + Math.random() * 34;
+    particle.style.setProperty('--task-burst-size', `${4 + Math.random() * 4}px`);
+    layer.appendChild(particle);
+    const animation = particle.animate([
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+      {
+        transform: `translate(calc(-50% + ${Math.cos(angle) * distance}px), calc(-50% + ${Math.sin(angle) * distance}px)) scale(0.2)`,
+        opacity: 0
+      }
+    ], { duration: 480 + Math.random() * 260, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'forwards' });
+    animation.onfinish = () => {
+      running -= 1;
+      if (!running) layer.remove();
+    };
+  }
+  // Web Animations can be dropped in a background tab; never leave the layer behind.
+  setTimeout(() => layer.remove(), 1200);
+
+  const row = anchor.closest('li, tr, .compact-row, .task-row, .kanban-card, .moment-todo-row');
+  if (row) {
+    row.classList.remove('task-done-pulse');
+    void row.offsetWidth;
+    row.classList.add('task-done-pulse');
+    setTimeout(() => row.classList.remove('task-done-pulse'), 700);
+  }
+}
+
+// Synthesised rather than shipped as an audio file: no asset to load, and the
+// extension stays free of binary blobs.
+function playTaskChime() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  try {
+    if (!taskAudioContext) taskAudioContext = new Ctx();
+    if (taskAudioContext.state === 'suspended') taskAudioContext.resume();
+    const start = taskAudioContext.currentTime;
+    // A rising fifth, quiet and short.
+    for (const [frequency, offset] of [[880, 0], [1318.5, 0.085]]) {
+      const oscillator = taskAudioContext.createOscillator();
+      const gain = taskAudioContext.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.09, start + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.26);
+      oscillator.connect(gain);
+      gain.connect(taskAudioContext.destination);
+      oscillator.start(start + offset);
+      oscillator.stop(start + offset + 0.3);
+    }
+  } catch (_) {
+    // Audio is a nicety; a blocked or unavailable context must not break the save.
+  }
 }
 
 function normalizedTaskStatus(task) {
@@ -2856,12 +2957,9 @@ async function handleTaskListAction(event) {
   const id = (toggle && toggle.dataset.toggleTask) || remove.dataset.deleteTask;
   const tasks = remove
     ? state.tasks.filter((task) => task.id !== id)
-    : state.tasks.map((task) => task.id === id ? {
-        ...task,
-        completed: toggle.checked,
-        status: toggle.checked ? 'done' : task.status === 'done' ? 'backlog' : normalizedTaskStatus(task),
-        updatedAt: Date.now()
-      } : task);
+    : state.tasks.map((task) => (task.id === id ? withTaskCompletion(task, toggle.checked) : task));
+  // Fire before the save: render() replaces the row, and the burst is anchored to it.
+  if (toggle && toggle.checked) celebrateTaskCompletion(toggle);
   await save({ tasks });
 }
 
@@ -4310,6 +4408,8 @@ function bindSettings() {
       ...state.settings,
       gateType,
       focusBlocksSites: $('#focusBlocksSites').checked,
+      celebrateTasks: $('#celebrateTasks').checked,
+      celebrateTasksSound: $('#celebrateTasksSound').checked,
       palette: ['signal', 'cobalt', 'forest', 'orange'].includes(palette) ? palette : 'signal',
       colorMode: ['system', 'light', 'dark'].includes($('input[name="colorMode"]:checked')?.value)
         ? $('input[name="colorMode"]:checked').value
@@ -4415,6 +4515,9 @@ function applySettingsFormValues() {
   if (palette) palette.checked = true;
   if (colorMode) colorMode.checked = true;
   $('#focusBlocksSites').checked = state.settings.focusBlocksSites !== false;
+  $('#celebrateTasks').checked = state.settings.celebrateTasks !== false;
+  $('#celebrateTasksSound').checked = state.settings.celebrateTasksSound !== false;
+  $('#celebrateTasksSound').disabled = state.settings.celebrateTasks === false;
   $('#gateOptions').classList.toggle('dimmed', state.settings.focusBlocksSites === false);
   $('#unlockMinutes').value = state.settings.unlockMinutes;
   $('#defaultFocusMinutes').value = state.settings.defaultFocusMinutes;
@@ -5100,9 +5203,12 @@ function bindMomentMode() {
   $('#momentTodoPanel').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-moment-task]');
     if (!button) return;
-    const tasks = state.tasks.map((task) => (task.id === button.dataset.momentTask
-      ? { ...task, completed: !task.completed, completedAt: task.completed ? null : Date.now(), status: task.completed ? 'in-progress' : 'done' }
+    const target = state.tasks.find((task) => task.id === button.dataset.momentTask);
+    if (!target) return;
+    const tasks = state.tasks.map((task) => (task.id === target.id
+      ? withTaskCompletion(task, !task.completed)
       : task));
+    if (!target.completed) celebrateTaskCompletion(button);
     await save({ tasks });
   });
 
@@ -6079,6 +6185,7 @@ const WHITEBOARD_PEN_WIDTH = 2.5;
 const WHITEBOARD_TEXT_SIZE = 18;
 const WHITEBOARD_ERASER_RADIUS = 14;
 const WHITEBOARD_PICK_RADIUS = 8;
+const TASK_BURST_PARTICLES = 14;
 
 function whiteboardContext() {
   return $('#whiteboardCanvas').getContext('2d');
