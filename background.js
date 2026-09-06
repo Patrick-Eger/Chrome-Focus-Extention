@@ -944,9 +944,29 @@ async function syncCalendars(interactive) {
   const syncTokens = { ...(data.calendarSyncTokens || {}) };
   const results = [];
 
+  // Per calendar: a revoked share or a deleted calendar used to throw out of the
+  // loop, so nothing at all was written - not even the calendars that worked, and
+  // not their sync tokens, which made every later run repeat the same full fetch
+  // and fail identically.
+  const calendarErrors = [];
   for (const calendar of selected) {
-    const result = await syncOneCalendar(calendar, token, syncTokens[calendar.id]);
-    results.push({ calendar, ...result });
+    try {
+      const result = await syncOneCalendar(calendar, token, syncTokens[calendar.id]);
+      results.push({ calendar, ...result });
+    } catch (error) {
+      calendarErrors.push({
+        calendarId: calendar.id,
+        name: calendar.name || calendar.id,
+        status: error.status || 0,
+        message: error.message || 'Sync failed.'
+      });
+    }
+  }
+  if (!results.length && calendarErrors.length) {
+    const first = calendarErrors[0];
+    throw new Error(calendarErrors.length === 1
+      ? `${first.name}: ${first.message}`
+      : `None of the ${calendarErrors.length} selected calendars could be read. ${first.name}: ${first.message}`);
   }
 
   const calendarAccount = await getGoogleProfile();
@@ -954,6 +974,18 @@ async function syncCalendars(interactive) {
 
   // Everything above is network I/O and can take seconds. The merge below runs
   // against a fresh read, so work blocks created meanwhile are not overwritten.
+  const failedIds = new Set(calendarErrors.map((entry) => entry.calendarId));
+  const calendarList = (data.calendarList || []).map((calendar) => {
+    if (failedIds.has(calendar.id)) {
+      const failure = calendarErrors.find((entry) => entry.calendarId === calendar.id);
+      return { ...calendar, syncError: failure.message, syncErrorAt: Date.now() };
+    }
+    if (results.some((result) => result.calendar.id === calendar.id)) {
+      return { ...calendar, syncError: '', syncErrorAt: null };
+    }
+    return calendar;
+  });
+
   const committed = await runStorageUpdate(
     ['calendarEvents', 'calendarSyncTokens', 'dailyPlans'],
     (current) => {
@@ -974,6 +1006,7 @@ async function syncCalendars(interactive) {
         calendarEvents: pruneCalendarEvents(calendarEvents),
         calendarSyncTokens,
         dailyPlans,
+        calendarList,
         calendarLastSyncedAt,
         calendarConnected: true,
         calendarAccount
@@ -983,9 +1016,10 @@ async function syncCalendars(interactive) {
 
   return {
     calendarEvents: committed.calendarEvents,
-    calendarList: data.calendarList,
+    calendarList,
     calendarAccount,
-    calendarLastSyncedAt
+    calendarLastSyncedAt,
+    calendarErrors
   };
 }
 
@@ -2714,7 +2748,11 @@ function normalizeCalendarListEntry(calendar, calendarIndex) {
     accessRole,
     writable: ['writer', 'owner'].includes(accessRole),
     primary: Boolean(calendar && calendar.primary),
-    selected: calendar && typeof calendar.selected === 'boolean' ? calendar.selected : true
+    selected: calendar && typeof calendar.selected === 'boolean' ? calendar.selected : true,
+    // Kept through normalisation, otherwise the next merge would erase the reason
+    // a calendar stopped syncing.
+    syncError: cleanText(calendar && calendar.syncError, 500),
+    syncErrorAt: Number(calendar && calendar.syncErrorAt) || null
   };
 }
 

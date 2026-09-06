@@ -3778,10 +3778,13 @@ function renderCalendarSettings() {
   status.classList.toggle('connected', connected);
   status.classList.toggle('setup', !configured);
   $('#settingsCalendarAccount').textContent = connected && account.email ? account.email : 'Google account';
+  const brokenCalendars = (state.calendarList || []).filter((calendar) => calendar.syncError);
   $('#settingsCalendarDetail').textContent = !configured
     ? 'Add an OAuth client ID before connecting this unpacked extension.'
     : connected
-      ? `Read and write access. ${events.length} event${events.length === 1 ? '' : 's'} loaded.`
+      ? brokenCalendars.length
+        ? `${events.length} event${events.length === 1 ? '' : 's'} loaded. ${brokenCalendars.length} calendar${brokenCalendars.length === 1 ? '' : 's'} could not be read: ${brokenCalendars.map((calendar) => calendar.name).join(', ')}.`
+        : `Read and write access. ${events.length} event${events.length === 1 ? '' : 's'} loaded.`
       : 'No account connected.';
   $('#settingsConnectCalendar').textContent = connected ? 'Refresh calendar' : 'Connect Google';
   $('#settingsConnectCalendar').disabled = !configured;

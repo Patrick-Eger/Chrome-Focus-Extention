@@ -79,7 +79,7 @@ counted toward a day.
 - Flashcards created from notes
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
   reminders in Google and the browser, incremental background sync, and visible
-  conflict/error states
+  conflict/error states, with one unreadable calendar no longer stopping the rest
 - Google account connection management and status in Settings
 - Optional automatic focus start, workspace-tab opening, missed-block recovery,
   and end-of-block review notifications
