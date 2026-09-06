@@ -155,6 +155,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   selectedPlannerDate = todayKey();
   selectedCalendarDate = todayKey();
   bindNavigation();
+  bindOnboarding();
   bindSearch();
   bindWhiteboard();
   bindFocus();
@@ -252,6 +253,7 @@ function render() {
   applyDashboardBackground();
   renderWorkspaceOptions();
   renderFocus();
+  renderOnboarding();
   renderDayRail();
   renderInbox();
   renderProjects();
@@ -1211,7 +1213,106 @@ async function handleWorkBlockAction(event, dateKey) {
   return true;
 }
 
+// Every step is derived from real state rather than tracked separately, so it
+// cannot fall out of step with what the user has actually done - and using the
+// feature anywhere, at any time, is what completes it.
+function onboardingSteps() {
+  const workspace = getWorkspace(state.activeWorkspaceId) || { domains: [] };
+  const planned = Object.values(state.dailyPlans || {}).some((blocks) => (blocks || []).length);
+  return [
+    {
+      id: 'sites',
+      title: 'Allow the sites you actually need',
+      hint: 'A focus session blocks everything outside the active workspace. Add the handful that should stay open.',
+      done: (workspace.domains || []).length > 0,
+      action: 'Open Workspaces',
+      view: 'workspaces'
+    },
+    {
+      id: 'block',
+      title: 'Put one block on today',
+      hint: 'Hover an hour on the timeline below and click it.',
+      done: planned,
+      action: 'New block',
+      run: () => openWorkBlockModal({ dateKey: selectedPlannerDate || todayKey(), time: nextRoundedTime() })
+    },
+    {
+      id: 'focus',
+      title: 'Run a focus session',
+      hint: 'Pick a length at the top and start it. Blocking can be switched off in Settings if you only want the timer.',
+      done: Boolean(state.focus && state.focus.startedAt),
+      action: '',
+      view: 'today'
+    },
+    {
+      id: 'capture',
+      title: 'Send something to the Inbox',
+      hint: 'From this page, the toolbar popup, the side panel, or Command+Shift+Y on any tab.',
+      done: (state.inboxItems || []).length > 0,
+      action: 'Open Inbox',
+      view: 'inbox'
+    },
+    {
+      id: 'note',
+      title: 'Write one note',
+      hint: 'Markdown, searchable, and the place flashcards are made from.',
+      done: (state.notes || []).length > 0,
+      action: 'Open Notes',
+      view: 'notes'
+    }
+  ];
+}
+
+function renderOnboarding() {
+  const panel = $('#onboarding');
+  const dismissed = !state.onboarding || state.onboarding.dismissed;
+  if (dismissed) {
+    panel.classList.add('hidden');
+    return;
+  }
+  const steps = onboardingSteps();
+  const done = steps.filter((step) => step.done).length;
+  panel.classList.remove('hidden');
+  panel.classList.toggle('complete', done === steps.length);
+  $('#onboardingHeading').textContent = done === steps.length
+    ? 'That is the whole tour.'
+    : 'Five things worth doing once';
+  $('#onboardingLead').textContent = done === steps.length
+    ? 'Everything else is in the sidebar. Hide this whenever you like.'
+    : `${done} of ${steps.length} done. Each one ticks itself off as you do it.`;
+  $('#onboardingSteps').innerHTML = steps.map((step) => `
+    <li class="onboarding-step${step.done ? ' done' : ''}">
+      <span class="onboarding-tick" aria-hidden="true">${step.done ? '&#10003;' : ''}</span>
+      <div>
+        <strong>${escapeHtml(step.title)}</strong>
+        <span>${escapeHtml(step.hint)}</span>
+      </div>
+      ${step.done || !step.action ? '' : `<button class="button secondary small" data-onboarding-step="${step.id}" type="button">${escapeHtml(step.action)}</button>`}
+    </li>
+  `).join('');
+}
+
+function bindOnboarding() {
+  $('#dismissOnboarding').addEventListener('click', async () => {
+    try {
+      await send('dismissOnboarding');
+      await loadState();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $('#onboardingSteps').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-onboarding-step]');
+    if (!button) return;
+    const step = onboardingSteps().find((entry) => entry.id === button.dataset.onboardingStep);
+    if (!step) return;
+    if (step.run) step.run();
+    else if (step.view) showView(step.view);
+  });
+}
+
 function renderDayRail() {
+
   selectedPlannerDate ||= todayKey();
   const blocks = [...(state.dailyPlans[selectedPlannerDate] || [])].sort((a, b) => a.time.localeCompare(b.time));
   const activeBlocks = blocks.filter((block) => block.status !== 'skipped');

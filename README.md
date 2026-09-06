@@ -150,6 +150,18 @@ be selected, and a different one is chosen whenever a new tab opens. Online mode
 uses the public random-image endpoint from [Lorem Picsum](https://picsum.photos/)
 and does not require an API key.
 
+## First run
+
+Installing opens the dashboard once. A new profile finds a short checklist at the
+top of Today: allow the sites you need, put one block on the day, run a session,
+capture something, write a note. Each step is worked out from the data itself, so
+doing the thing anywhere in the app ticks it off - there is no separate progress to
+get out of step. **Hide this** removes it for good.
+
+Anyone who already has projects, tasks, notes, captures, cards, a planned day, or
+an allowed site never sees it: the profile has plainly been used, and a
+getting-started list on update would only be noise.
+
 ## Load the extension
 
 1. Open `chrome://extensions` in Chrome.

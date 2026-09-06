@@ -4,7 +4,8 @@ import vm from 'node:vm';
 const SRC = process.env.BG_SRC || new URL('../../background.js', import.meta.url);
 
 export function makeWorker({ store = {}, fetchImpl } = {}) {
-  const listeners = { alarm: [], changed: [] };
+  const listeners = { alarm: [], changed: [], installed: [] };
+  const tabsCreated = [];
   const alarms = new Map();
   const changes = [];
   const noop = () => {};
@@ -33,7 +34,7 @@ export function makeWorker({ store = {}, fetchImpl } = {}) {
       id: 'test', lastError: null,
       getURL: (p) => `chrome-extension://test/${p}`,
       getManifest: () => ({ version: '5.13.0', oauth2: { client_id: '123-real.apps.googleusercontent.com' } }),
-      onInstalled: mk([]), onStartup: mk([]), onMessage: mk([]),
+      onInstalled: mk(listeners.installed), onStartup: mk([]), onMessage: mk([]),
       sendMessage: async () => {}
     },
     storage: { local, onChanged: mk(listeners.changed), sync: { get: async () => ({}) } },
@@ -52,7 +53,7 @@ export function makeWorker({ store = {}, fetchImpl } = {}) {
       getProfileUserInfo: (_o, cb) => cb({ email: 'a@b.c', id: '1' }),
       removeCachedAuthToken: async () => {}
     },
-    tabs: { create: async () => {}, query: async () => [] },
+    tabs: { create: async (info) => { tabsCreated.push(info); }, query: async () => [] },
     tabGroups: {}, sidePanel: { open: async () => {} }
   };
 
@@ -74,8 +75,13 @@ export function makeWorker({ store = {}, fetchImpl } = {}) {
     'notionProjectBlocks', 'normalizeNotionSync', 'normalizeRecurringSeries', 'seriesOccursOn',
     'materializeRecurringSeries', 'recurrenceHorizonKeys', 'saveRecurringSeries',
     'deleteRecurringSeries', 'skipSeriesOccurrence', 'applyRecurrence', 'allowDomain', 'normalizeFlashcard', 'scheduleFlashcard',
-    'reviewFlashcard', 'saveFlashcard', 'deleteFlashcard'];
+    'reviewFlashcard', 'saveFlashcard', 'deleteFlashcard', 'normalizeOnboarding'];
   const api = {};
   for (const n of names) { try { api[n] = vm.runInContext(n, ctx); } catch (_) {} }
-  return { api, store, changes, alarms, chrome };
+  const fireInstalled = async (details) => {
+    for (const fn of listeners.installed) await fn(details);
+    // The listener chains off ensureInitialized, so give the promise a turn.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  return { api, store, changes, alarms, chrome, tabsCreated, fireInstalled };
 }

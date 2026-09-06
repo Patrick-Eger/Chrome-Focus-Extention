@@ -131,13 +131,23 @@ const DEFAULTS = {
   calendarAccount: null,
   obsidianSyncRecords: {},
   notionSync: { taskDatabaseId: null, projects: {}, tasks: {}, notes: {}, lastSyncedAt: null, workspaceName: '' },
+  onboarding: { dismissed: false },
   migratedLegacyData: false
 };
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   initializationPromise = null;
   setupBrowserIntegrations();
-  ensureInitialized().catch(console.error);
+  ensureInitialized()
+    .then(() => {
+      // Only on a fresh install: an update should not steal a tab from someone
+      // in the middle of something.
+      if (details && details.reason === 'install') {
+        return chrome.tabs.create({ url: chrome.runtime.getURL('newtab.html') });
+      }
+      return null;
+    })
+    .catch(console.error);
 });
 chrome.runtime.onStartup.addListener(() => ensureInitialized().catch(console.error));
 
@@ -335,6 +345,7 @@ function mergeDefaults(current) {
       ? current.temporaryAccess
       : {},
     momentFocus: normalizeMomentFocus(current.momentFocus),
+    onboarding: normalizeOnboarding(current),
     calendarEvents: Array.isArray(current.calendarEvents)
       ? current.calendarEvents.map(normalizeCalendarEvent)
       : [],
@@ -483,6 +494,8 @@ async function handleMessage(message, sender) {
       return saveFlashcard(message.card);
     case 'deleteFlashcard':
       return deleteFlashcard(message.id);
+    case 'dismissOnboarding':
+      return runStorageUpdate(['onboarding'], () => ({ onboarding: { dismissed: true } }));
     case 'allowDomain':
       return allowDomain(message.domain);
     case 'completeTask':
@@ -2660,6 +2673,18 @@ function normalizeNotionSync(value) {
     workspaceName: cleanText(sync.workspaceName, 200),
     lastSyncedAt: Number(sync.lastSyncedAt) || null
   };
+}
+
+// A profile that already has content has plainly been used, so it is never shown
+// the getting-started checklist - only a genuinely empty one is.
+function normalizeOnboarding(current) {
+  const stored = current.onboarding;
+  if (stored && typeof stored === 'object') return { dismissed: Boolean(stored.dismissed) };
+  const used = ['projects', 'tasks', 'notes', 'inboxItems', 'flashcards']
+    .some((key) => Array.isArray(current[key]) && current[key].length)
+    || Object.keys(current.dailyPlans || {}).length > 0
+    || (current.workspaces || []).some((workspace) => (workspace.domains || []).length);
+  return { dismissed: used };
 }
 
 function normalizeMomentFocus(value) {
