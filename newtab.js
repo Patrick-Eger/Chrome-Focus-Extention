@@ -25,6 +25,7 @@ let projectGroupFilter = 'all';
 let selectedDrawerTaskId = null;
 let drawerSubtasks = [];
 let dayReviewOpen = false;
+let routinesOpen = false;
 let draggedPlannerTaskId = null;
 let noteFoldersInitialized = false;
 let inboxStatusFilter = 'open';
@@ -238,6 +239,7 @@ function render() {
   state.projectGroups = Array.isArray(state.projectGroups) ? state.projectGroups : [];
   state.inboxItems = Array.isArray(state.inboxItems) ? state.inboxItems : [];
   state.reminders = Array.isArray(state.reminders) ? state.reminders : [];
+  state.recurringSeries = Array.isArray(state.recurringSeries) ? state.recurringSeries : [];
   state.obsidianSyncRecords = state.obsidianSyncRecords && typeof state.obsidianSyncRecords === 'object'
     ? state.obsidianSyncRecords
     : {};
@@ -1214,6 +1216,7 @@ function renderDayRail() {
   renderDayTimeline($('#dayRail'), selectedPlannerDate, { interactive: true });
   renderPlannerTaskBank();
   renderDayReview(blocks);
+  renderRoutines();
 }
 
 function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
@@ -1323,7 +1326,7 @@ function renderTimelineEntry(entry, startMinute, endMinute, pixelsPerMinute, int
   const reminderLabel = block.calendar && block.calendar.reminderEnabled
     ? `${Number(block.calendar.reminderMinutes) || 10} min reminder`
     : '';
-  return `<article class="timeline-entry work-block-entry status-${escapeHtml(status)}" draggable="${interactive}" data-work-block="${escapeHtml(block.id)}"
+  return `<article class="timeline-entry work-block-entry status-${escapeHtml(status)}${block.seriesId ? ' from-routine' : ''}" draggable="${interactive}" data-work-block="${escapeHtml(block.id)}"
     style="top:${top}px;height:${height}px;left:${left};width:${width}">
     <div class="timeline-entry-copy">
       <strong>${escapeHtml(block.title)}</strong>
@@ -1492,6 +1495,74 @@ function renderDayScorecard(dateKey) {
       ${scorecardDelta(card.value, card.previous)}
     </div>
   `).join('')}</div>`;
+}
+
+function describeRecurrence(series) {
+  const { freq, interval, weekdays, monthDay } = series.rule;
+  const every = interval > 1 ? `every ${interval} ` : 'every ';
+  if (freq === 'daily') return interval > 1 ? `Every ${interval} days` : 'Every day';
+  if (freq === 'weekdays') return 'Every weekday';
+  if (freq === 'weekly') {
+    const names = weekdays
+      .map((day) => new Date(Date.UTC(2024, 0, 7 + day)).toLocaleDateString([], { weekday: 'short', timeZone: 'UTC' }))
+      .join(', ');
+    return `${interval > 1 ? `Every ${interval} weeks` : 'Every week'} on ${names}`;
+  }
+  if (freq === 'monthly') return `${interval > 1 ? `Every ${interval} months` : 'Every month'} on day ${monthDay}`;
+  return every;
+}
+
+function renderRoutines() {
+  $('#routinesPanel').classList.toggle('hidden', !routinesOpen);
+  $('#toggleRoutines').classList.toggle('active', routinesOpen);
+  if (!routinesOpen) return;
+  const series = state.recurringSeries || [];
+  $('#routinesList').innerHTML = series.length ? series.map((entry) => `
+    <article class="review-row">
+      <time>${escapeHtml(entry.kind === 'block' ? entry.time : 'Task')}</time>
+      <div>
+        <strong>${escapeHtml(entry.title)}</strong>
+        <span>${escapeHtml(describeRecurrence(entry))}${entry.kind === 'block' ? ` · ${entry.duration} min` : ''}${entry.active ? '' : ' · paused'}</span>
+      </div>
+      <div class="button-row">
+        <button class="button secondary small" data-routine-toggle="${escapeHtml(entry.id)}" type="button">${entry.active ? 'Pause' : 'Resume'}</button>
+        <button class="button secondary small danger-text" data-routine-delete="${escapeHtml(entry.id)}" type="button">Delete</button>
+      </div>
+    </article>
+  `).join('') : emptyState('No routines yet. Set Repeat on a work block to make one.');
+}
+
+function bindRoutines() {
+  $('#toggleRoutines').addEventListener('click', () => {
+    routinesOpen = !routinesOpen;
+    if (routinesOpen) dayReviewOpen = false;
+    renderDayRail();
+  });
+  $('#closeRoutines').addEventListener('click', () => {
+    routinesOpen = false;
+    renderRoutines();
+  });
+  $('#routinesList').addEventListener('click', async (event) => {
+    const pause = event.target.closest('[data-routine-toggle]');
+    const remove = event.target.closest('[data-routine-delete]');
+    if (!pause && !remove) return;
+    const id = (pause || remove).dataset.routineToggle || remove.dataset.routineDelete;
+    try {
+      if (pause) {
+        const entry = (state.recurringSeries || []).find((item) => item.id === id);
+        if (!entry) return;
+        await send('saveRecurringSeries', { series: { ...entry, active: !entry.active } });
+        showToast(entry.active ? 'Routine paused.' : 'Routine resumed.');
+      } else {
+        if (!confirm('Delete this routine? Future occurrences that are still untouched go with it; anything already completed stays.')) return;
+        await send('deleteRecurringSeries', { id });
+        showToast('Routine deleted.');
+      }
+      await loadState();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
 }
 
 function renderDayReview(blocks) {
@@ -1755,6 +1826,17 @@ function openWorkBlockModal({ dateKey, time, blockId = null }) {
   $('#workBlockWorkspace').value = block ? block.workspaceId : state.activeWorkspaceId;
   renderWorkBlockContextOptions(block && block.projectId, block && block.taskId);
   renderWorkBlockCalendarOptions(block);
+  const series = block && block.seriesId
+    ? (state.recurringSeries || []).find((entry) => entry.id === block.seriesId)
+    : null;
+  $('#workBlockRepeat').value = 'none';
+  $('#workBlockRepeat').disabled = Boolean(block);
+  $('#workBlockRepeatNote').classList.toggle('hidden', !block);
+  $('#workBlockRepeatNote').textContent = series
+    ? `Part of a routine: ${describeRecurrence(series)}. Changes here apply to this day only.`
+    : block
+      ? 'Repeat can only be set when a block is created.'
+      : '';
   $('#workBlockAutoStart').checked = block ? block.autoStart !== false : state.settings.autoStartBlocks !== false;
   const reminderEnabled = block
     ? Boolean(block.calendar && block.calendar.reminderEnabled)
@@ -1906,11 +1988,39 @@ async function saveWorkBlockFromModal(event) {
     } else if (existing && existing.calendar && existing.calendar.eventId) {
       await send('deleteCalendarEvent', { dateKey, id: block.id, interactive: true });
     }
+    // A new block with a repeat becomes a routine; the block just saved is its
+    // first occurrence, so materialisation fills in the rest of the horizon.
+    const repeat = existing ? 'none' : $('#workBlockRepeat').value;
+    let routineMade = false;
+    if (repeat !== 'none') {
+      const weekday = new Date(`${dateKey}T12:00:00`).getDay();
+      await send('saveRecurringSeries', {
+        series: {
+          kind: 'block',
+          title: block.title,
+          description: block.description,
+          time: block.time,
+          duration: block.duration,
+          workspaceId: block.workspaceId,
+          projectId: block.projectId,
+          startDate: dateKey,
+          rule: {
+            freq: repeat,
+            interval: 1,
+            weekdays: repeat === 'weekly' ? [weekday] : [],
+            monthDay: Number(dateKey.slice(8, 10))
+          }
+        }
+      });
+      routineMade = true;
+    }
     selectedPlannerDate = dateKey;
     selectedCalendarDate = dateKey;
     closeWorkBlockModal();
     await loadState();
-    showToast(syncRequested ? 'Work block saved to Focus Desk and Google Calendar.' : 'Work block saved.');
+    showToast(routineMade
+      ? 'Work block saved and set to repeat.'
+      : syncRequested ? 'Work block saved to Focus Desk and Google Calendar.' : 'Work block saved.');
   } catch (error) {
     await loadState();
     $('#workBlockFormStatus').textContent = error.message;
@@ -1920,7 +2030,11 @@ async function saveWorkBlockFromModal(event) {
 
 async function deleteWorkBlockFromModal() {
   const block = editingWorkBlockId && getWorkBlock(editingWorkBlockDate, editingWorkBlockId);
-  if (!block || !confirm(`Delete "${block.title}"?`)) return;
+  if (!block) return;
+  const partOfRoutine = Boolean(block.seriesId);
+  if (!confirm(partOfRoutine
+    ? `Delete "${block.title}" on this day? The routine keeps running on its other days.`
+    : `Delete "${block.title}"?`)) return;
   try {
     if (block.calendar && block.calendar.eventId) {
       await send('deleteCalendarEvent', {
@@ -1931,13 +2045,19 @@ async function deleteWorkBlockFromModal() {
       await loadState();
     }
     if (block.status === 'active') await send('stopFocus');
-    const dailyPlans = { ...state.dailyPlans };
-    dailyPlans[editingWorkBlockDate] = (dailyPlans[editingWorkBlockDate] || [])
-      .filter((entry) => entry.id !== block.id);
-    await chrome.storage.local.set({ dailyPlans });
+    if (partOfRoutine) {
+      // Recorded as a skip on the series, otherwise the next materialisation
+      // would simply put this day's occurrence straight back.
+      await send('skipSeriesOccurrence', { seriesId: block.seriesId, dateKey: editingWorkBlockDate });
+    } else {
+      const dailyPlans = { ...state.dailyPlans };
+      dailyPlans[editingWorkBlockDate] = (dailyPlans[editingWorkBlockDate] || [])
+        .filter((entry) => entry.id !== block.id);
+      await chrome.storage.local.set({ dailyPlans });
+    }
     closeWorkBlockModal();
     await loadState();
-    showToast('Work block deleted.');
+    showToast(partOfRoutine ? 'Removed from this day.' : 'Work block deleted.');
   } catch (error) {
     $('#workBlockFormStatus').textContent = error.message;
     $('#workBlockFormStatus').classList.add('error');
@@ -4637,6 +4757,7 @@ function bindSettings() {
   bindDashboardLayoutSettings();
   bindDataSettings();
   bindNotionSettings();
+  bindRoutines();
   $('#settingsView').addEventListener('input', markSettingsFormDirty);
   $('#settingsView').addEventListener('change', markSettingsFormDirty);
   $('#momentOverlay').addEventListener('input', (event) => {

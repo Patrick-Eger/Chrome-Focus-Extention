@@ -43,6 +43,8 @@ that block every website outside the active workspace allowlist.
 - End-of-day scorecard comparing the day against the one before it
 - Standalone personal reminders with their own editor, exact-time browser
   notifications, timeline entries, and completion state
+- Repeating work blocks and tasks: daily, every weekday, weekly on chosen days, or
+  monthly, with per-day exceptions and a Routines panel to pause or end one
 - Daily Planning Engine with a draggable task bank, one-click task scheduling,
   priority-based automatic planning, configurable work hours, and task estimates
 - Calendar-aware scheduling that protects timed Google Calendar events and marks
@@ -50,6 +52,21 @@ that block every website outside the active workspace allowlist.
 - Linked work blocks that retain their task, project, and workspace, then start
   the matching workspace and focus session together
 - End-of-day review with completion and one-click rollover to tomorrow
+
+**Repeat** in the work-block editor turns a new block into a routine: every day,
+every weekday, weekly on that weekday, or monthly on that date. Occurrences are
+written into the plan for the next three weeks, so alarms, Google Calendar sync,
+the Obsidian day notes and the scorecard all see them as ordinary blocks. Editing
+or completing one occurrence never gets undone by the next materialisation, and
+deleting one removes it from that day only - the routine keeps its other days.
+
+A weekly routine counts its interval from its first actual occurrence, not from
+the day it was created: a fortnightly Monday routine set up on a Wednesday runs the
+coming Monday rather than skipping nearly two weeks.
+
+**Routines** beside Review lists them all, pauses or resumes one, and deletes one.
+Deleting takes future occurrences that are still untouched; anything already
+completed, and anything in the past, stays as a record of what happened.
 
 Hovering the day timeline highlights the whole hour a new block would fill and
 labels it; clicking opens the editor at that hour with a 60-minute default, where

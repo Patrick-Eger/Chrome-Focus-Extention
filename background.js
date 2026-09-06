@@ -58,6 +58,7 @@ const DEFAULTS = {
   flashcards: [],
   dailyPlans: {},
   reminders: [],
+  recurringSeries: [],
   settings: {
     focusBlocksSites: true,
     celebrateTasks: true,
@@ -146,6 +147,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     || changes.settings) {
     updateBlockRule().catch(console.error);
   }
+  if (changes.recurringSeries) applyRecurrence().catch(console.error);
   if (changes.dailyPlans) syncWorkBlockAlarms().catch(console.error);
   if (changes.reminders) syncStandaloneReminderAlarms().catch(console.error);
   chrome.runtime.sendMessage({ type: 'stateUpdate' }).catch(() => {});
@@ -285,6 +287,7 @@ async function initialize() {
     chrome.alarms.create(FOCUS_ALARM, { when: next.focus.endAt });
   }
   await restoreTemporaryAccessAlarms(next.temporaryAccess);
+  await applyRecurrence();
   chrome.alarms.create(CALENDAR_SYNC_ALARM, { periodInMinutes: 15 });
   await reconcileScheduledWorkBlocks();
   await syncWorkBlockAlarms();
@@ -324,6 +327,9 @@ function mergeDefaults(current) {
     dailyPlans: normalizeDailyPlans(current.dailyPlans, current.activeWorkspaceId || DEFAULTS.activeWorkspaceId),
     reminders: Array.isArray(current.reminders)
       ? current.reminders.map(normalizeStandaloneReminder)
+      : [],
+    recurringSeries: Array.isArray(current.recurringSeries)
+      ? current.recurringSeries.map(normalizeRecurringSeries).filter(Boolean)
       : [],
     temporaryAccess: current.temporaryAccess && typeof current.temporaryAccess === 'object'
       ? current.temporaryAccess
@@ -465,6 +471,12 @@ async function handleMessage(message, sender) {
       return exportData();
     case 'importData':
       return importData(message.payload);
+    case 'saveRecurringSeries':
+      return saveRecurringSeries(message.series);
+    case 'deleteRecurringSeries':
+      return deleteRecurringSeries(message.id, Boolean(message.keepPlanned));
+    case 'skipSeriesOccurrence':
+      return skipSeriesOccurrence(message.seriesId, message.dateKey);
     case 'completeTask':
       return completeTask(message.id);
     case 'completeReminder':
@@ -2137,6 +2149,64 @@ async function syncNotion(message = {}) {
   return { projectCount, taskCount, databaseId, lastSyncedAt: sync.lastSyncedAt };
 }
 
+async function saveRecurringSeries(input) {
+  await ensureInitialized();
+  const series = normalizeRecurringSeries({ ...input, id: input && input.id || createBackgroundId('series') });
+  if (!series) throw new Error('That routine is missing its details.');
+  await runStorageUpdate(['recurringSeries'], (current) => {
+    const list = current.recurringSeries || [];
+    const index = list.findIndex((entry) => entry.id === series.id);
+    const next = index >= 0
+      ? list.map((entry) => (entry.id === series.id ? { ...series, createdAt: entry.createdAt } : entry))
+      : [...list, series];
+    return { recurringSeries: next };
+  });
+  await applyRecurrence();
+  return { series };
+}
+
+async function deleteRecurringSeries(seriesId, keepPlanned) {
+  await ensureInitialized();
+  const id = cleanText(seriesId, 120);
+  if (!id) throw new Error('That routine no longer exists.');
+  const today = localDateKey(new Date());
+  await runStorageUpdate(['recurringSeries', 'dailyPlans', 'tasks'], (current) => {
+    const patch = { recurringSeries: (current.recurringSeries || []).filter((entry) => entry.id !== id) };
+    if (keepPlanned) return patch;
+    // Only future, untouched occurrences go. Anything started, completed or in
+    // the past is a record of what happened and stays.
+    const dailyPlans = {};
+    for (const [dateKey, blocks] of Object.entries(current.dailyPlans || {})) {
+      dailyPlans[dateKey] = (blocks || []).filter((block) =>
+        block.seriesId !== id || dateKey < today || block.status !== 'planned');
+    }
+    patch.dailyPlans = dailyPlans;
+    patch.tasks = (current.tasks || []).filter((task) =>
+      task.seriesId !== id || task.completed || !task.plannedDate || task.plannedDate < today);
+    return patch;
+  });
+  return {};
+}
+
+async function skipSeriesOccurrence(seriesId, dateKeyValue) {
+  await ensureInitialized();
+  const id = cleanText(seriesId, 120);
+  const dateKey = normalizeDate(dateKeyValue);
+  if (!id || !dateKey) throw new Error('That occurrence no longer exists.');
+  await runStorageUpdate(['recurringSeries', 'dailyPlans', 'tasks'], (current) => ({
+    // Recorded on the series, or the next materialisation would put it straight back.
+    recurringSeries: (current.recurringSeries || []).map((entry) => (entry.id === id
+      ? { ...entry, skipDates: [...new Set([...(entry.skipDates || []), dateKey])], updatedAt: Date.now() }
+      : entry)),
+    dailyPlans: Object.fromEntries(Object.entries(current.dailyPlans || {}).map(([key, blocks]) => [
+      key,
+      key === dateKey ? (blocks || []).filter((block) => block.seriesId !== id) : blocks
+    ])),
+    tasks: (current.tasks || []).filter((task) => !(task.seriesId === id && task.plannedDate === dateKey))
+  }));
+  return {};
+}
+
 async function completeTask(taskId) {
 
   await ensureInitialized();
@@ -2481,6 +2551,163 @@ function normalizeDailyPlans(value, fallbackWorkspaceId = 'default') {
     ]));
 }
 
+const RECURRENCE_FREQUENCIES = ['daily', 'weekdays', 'weekly', 'monthly'];
+// How far ahead occurrences are written into storage. They have to be real rows,
+// not computed at render time, because alarms, the calendar sync and the day
+// scorecard all read dailyPlans rather than the rules.
+const RECURRENCE_HORIZON_DAYS = 21;
+
+function normalizeRecurringSeries(series, seriesIndex = 0) {
+  if (!series || typeof series !== 'object') return null;
+  const kind = series.kind === 'task' ? 'task' : 'block';
+  const freq = RECURRENCE_FREQUENCIES.includes(series.rule && series.rule.freq)
+    ? series.rule.freq
+    : 'daily';
+  const weekdays = Array.isArray(series.rule && series.rule.weekdays)
+    ? [...new Set(series.rule.weekdays.map(Number).filter((day) => day >= 0 && day <= 6))].sort()
+    : [];
+  const startDate = normalizeDate(series.startDate) || localDateKey(new Date());
+  return {
+    id: cleanText(series.id, 120) || `series-${seriesIndex}`,
+    kind,
+    title: cleanText(series.title, 500) || `Routine ${seriesIndex + 1}`,
+    description: cleanLongText(series.description, 4000),
+    time: kind === 'block' ? cleanWorkTime(series.time) || '09:00' : '',
+    duration: kind === 'block' ? clampNumber(series.duration, 5, 480, 60) : 0,
+    workspaceId: cleanText(series.workspaceId, 120) || 'default',
+    projectId: cleanText(series.projectId, 120) || null,
+    rule: {
+      freq,
+      interval: clampNumber(series.rule && series.rule.interval, 1, 12, 1),
+      // A weekly rule with no days chosen would never fire; fall back to the day
+      // the series started on.
+      weekdays: freq === 'weekly'
+        ? (weekdays.length ? weekdays : [new Date(`${startDate}T12:00:00`).getDay()])
+        : weekdays,
+      monthDay: clampNumber(series.rule && series.rule.monthDay, 1, 31,
+        Number(startDate.slice(8, 10)) || 1)
+    },
+    startDate,
+    endDate: normalizeDate(series.endDate),
+    skipDates: Array.isArray(series.skipDates)
+      ? [...new Set(series.skipDates.map(normalizeDate).filter(Boolean))].sort()
+      : [],
+    active: series.active !== false,
+    createdAt: Number(series.createdAt) || Date.now(),
+    updatedAt: Number(series.updatedAt) || Date.now()
+  };
+}
+
+function mondayOf(date) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7));
+  copy.setHours(12, 0, 0, 0);
+  return copy;
+}
+
+function seriesOccursOn(series, dateKey) {
+  if (!series.active) return false;
+  if (dateKey < series.startDate) return false;
+  if (series.endDate && dateKey > series.endDate) return false;
+  if (series.skipDates.includes(dateKey)) return false;
+
+  const date = new Date(`${dateKey}T12:00:00`);
+  const start = new Date(`${series.startDate}T12:00:00`);
+  const { freq, interval, weekdays, monthDay } = series.rule;
+
+  if (freq === 'weekdays') return date.getDay() >= 1 && date.getDay() <= 5;
+  if (freq === 'daily') {
+    return Math.round((date - start) / 86400000) % interval === 0;
+  }
+  if (freq === 'weekly') {
+    if (!weekdays.includes(date.getDay())) return false;
+    // Anchored on the week of the FIRST actual occurrence, not the start date. A
+    // fortnightly Monday routine created on a Wednesday should run the coming
+    // Monday, not skip nearly two weeks because the start week was counted as one.
+    const anchor = new Date(start);
+    for (let step = 0; step < 7 && !weekdays.includes(anchor.getDay()); step += 1) {
+      anchor.setDate(anchor.getDate() + 1);
+    }
+    const weeks = Math.round((mondayOf(date) - mondayOf(anchor)) / (7 * 86400000));
+    return weeks >= 0 && weeks % interval === 0;
+  }
+  if (freq === 'monthly') {
+    if (date.getDate() !== monthDay) return false;
+    const months = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
+    return months >= 0 && months % interval === 0;
+  }
+  return false;
+}
+
+function recurrenceHorizonKeys(fromDate = new Date()) {
+  const keys = [];
+  for (let offset = 0; offset < RECURRENCE_HORIZON_DAYS; offset += 1) {
+    const date = new Date(fromDate);
+    date.setDate(date.getDate() + offset);
+    keys.push(localDateKey(date));
+  }
+  return keys;
+}
+
+// Idempotent: an occurrence already written for a date is left exactly as it is,
+// so editing or completing one is never undone by the next materialisation.
+function materializeRecurringSeries(current, now = new Date()) {
+  const seriesList = (current.recurringSeries || []).map(normalizeRecurringSeries).filter(Boolean);
+  if (!seriesList.length) return {};
+  const dateKeys = recurrenceHorizonKeys(now);
+  const dailyPlans = { ...(current.dailyPlans || {}) };
+  const tasks = [...(current.tasks || [])];
+  let addedBlocks = 0;
+  let addedTasks = 0;
+
+  for (const series of seriesList) {
+    for (const dateKey of dateKeys) {
+      if (!seriesOccursOn(series, dateKey)) continue;
+
+      if (series.kind === 'block') {
+        const existing = dailyPlans[dateKey] || [];
+        if (existing.some((block) => block.seriesId === series.id)) continue;
+        dailyPlans[dateKey] = [...existing, normalizeWorkBlock({
+          id: `${series.id}--${dateKey}`,
+          seriesId: series.id,
+          title: series.title,
+          description: series.description,
+          time: series.time,
+          duration: series.duration,
+          workspaceId: series.workspaceId,
+          projectId: series.projectId,
+          status: 'planned'
+        }, existing.length)];
+        addedBlocks += 1;
+        continue;
+      }
+
+      if (tasks.some((task) => task.seriesId === series.id && task.plannedDate === dateKey)) continue;
+      tasks.push(normalizeTask({
+        id: `${series.id}--${dateKey}`,
+        seriesId: series.id,
+        title: series.title,
+        description: series.description,
+        workspaceId: series.workspaceId,
+        projectId: series.projectId,
+        plannedDate: dateKey,
+        status: 'planned'
+      }, tasks.length));
+      addedTasks += 1;
+    }
+  }
+
+  const patch = {};
+  if (addedBlocks) patch.dailyPlans = dailyPlans;
+  if (addedTasks) patch.tasks = tasks;
+  return patch;
+}
+
+function applyRecurrence() {
+  return runStorageUpdate(['recurringSeries', 'dailyPlans', 'tasks'], (current) =>
+    materializeRecurringSeries(current));
+}
+
 function normalizeStandaloneReminder(reminder, reminderIndex) {
   const createdAt = Number(reminder && reminder.createdAt) || Date.now();
   const status = reminder && reminder.status === 'completed' ? 'completed' : 'scheduled';
@@ -2521,6 +2748,9 @@ function normalizeWorkBlock(block, blockIndex) {
   return {
     ...block,
     id: cleanText(block && block.id, 120) || `block-${blockIndex}`,
+    // Explicit rather than relying on the spread: losing it would orphan the
+    // occurrence from its series and let the next materialisation duplicate it.
+    seriesId: cleanText(block && block.seriesId, 120) || null,
     time: cleanWorkTime(block && block.time) || '09:00',
     title: cleanText(block && block.title, 500) || `Work block ${blockIndex + 1}`,
     description: cleanLongText(block && block.description, 4000),
@@ -2638,6 +2868,7 @@ function normalizeTask(task, taskIndex) {
   return {
     ...task,
     id: cleanText(task && task.id, 120) || `task-${taskIndex}`,
+    seriesId: cleanText(task && task.seriesId, 120) || null,
     title: cleanText(task && task.title, 500) || `Task ${taskIndex + 1}`,
     description: cleanLongText(task && task.description, 12000),
     workspaceId: cleanText(task && task.workspaceId, 120) || 'default',

@@ -1670,3 +1670,6 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 .scorecard-cell .delta.down { color: var(--muted); }
 .scorecard-cell .delta.same { color: var(--muted); }
 .scorecard-empty { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+
+.work-block-repeat-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.timeline-entry.from-routine { border-left-style: double; }

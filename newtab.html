@@ -137,6 +137,7 @@
                 <button id="newReminder" class="button secondary small" type="button">New reminder</button>
                 <button id="autoPlanDay" class="button primary small" type="button">Plan my day</button>
                 <button id="toggleDayReview" class="button secondary small" type="button">Review</button>
+                <button id="toggleRoutines" class="button secondary small" type="button">Routines</button>
               </div>
             </div>
             <form id="planForm" class="inline-form plan-form">
@@ -156,6 +157,13 @@
                 <div id="plannerTaskBank"></div>
               </aside>
             </div>
+            <section id="routinesPanel" class="day-review hidden">
+              <div class="workspace-subheading">
+                <div><span class="eyebrow">Repeating</span><h3>Routines</h3></div>
+                <button id="closeRoutines" class="text-button" type="button">Close</button>
+              </div>
+              <div id="routinesList"></div>
+            </section>
             <section id="dayReview" class="day-review hidden">
               <div class="workspace-subheading">
                 <div><span class="eyebrow">End of day</span><h3>Close the loops</h3></div>
@@ -730,6 +738,16 @@
           <textarea id="workBlockDescription" rows="4" maxlength="4000" placeholder="Outcome, context, or preparation notes"></textarea>
         </label>
         <div class="work-block-options">
+          <label class="field-label">Repeat
+            <select id="workBlockRepeat">
+              <option value="none">Does not repeat</option>
+              <option value="daily">Every day</option>
+              <option value="weekdays">Every weekday</option>
+              <option value="weekly">Every week on this day</option>
+              <option value="monthly">Every month on this date</option>
+            </select>
+          </label>
+          <p id="workBlockRepeatNote" class="work-block-repeat-note hidden"></p>
           <label class="toggle-setting"><input id="workBlockAutoStart" type="checkbox"><span><strong>Auto-start focus</strong>Start focus mode at the scheduled time.</span></label>
           <label class="toggle-setting"><input id="workBlockSync" type="checkbox"><span><strong>Add to Google Calendar</strong>Create or update a linked calendar event.</span></label>
           <label class="field-label">Reminder
