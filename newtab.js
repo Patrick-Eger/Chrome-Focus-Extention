@@ -46,8 +46,9 @@ let dashboardPhotoStatus = '';
 let pendingWidgetFocus = null;
 let dashboardObjectUrl = null;
 let dashboardBackgroundLoaded = false;
-let settingsFormDirty = false;
 let notionSyncInProgress = false;
+let settingsSavedTimer = null;
+let settingsGroup = 'focus';
 let searchOpen = false;
 let searchResults = [];
 let searchActiveIndex = 0;
@@ -5188,19 +5189,35 @@ async function removeObsidianVaultHandle() {
   database.close();
 }
 
+function showSettingsGroup(group) {
+  settingsGroup = group;
+  $$('[data-settings-nav]').forEach((button) => {
+    const on = button.dataset.settingsNav === group;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-current', on ? 'true' : 'false');
+  });
+  // Sections without a group belong to Focus, so a new one is never invisible
+  // just because it was added without a tag.
+  $$('.settings-section').forEach((section) => {
+    section.classList.toggle('hidden', (section.dataset.settingsGroup || 'focus') !== group);
+  });
+}
+
+function bindSettingsNav() {
+  $$('[data-settings-nav]').forEach((button) => {
+    button.addEventListener('click', () => showSettingsGroup(button.dataset.settingsNav));
+  });
+  showSettingsGroup(settingsGroup);
+}
+
 function bindSettings() {
+  bindSettingsNav();
   bindDashboardLayoutSettings();
   bindDataSettings();
   bindNotionSettings();
   bindRoutines();
-  $('#settingsView').addEventListener('input', markSettingsFormDirty);
-  $('#settingsView').addEventListener('change', markSettingsFormDirty);
   $('#momentOverlay').addEventListener('input', (event) => {
     $('#momentOverlayValue').textContent = `${event.target.value}%`;
-  });
-  $('#focusBlocksSites').addEventListener('change', async (event) => {
-    // Applies at once, including to a session already running.
-    await save({ settings: { ...state.settings, focusBlocksSites: event.target.checked } });
   });
   $('#momentQuoteMode').addEventListener('change', toggleCustomQuoteFields);
   $$('input[name="colorMode"]').forEach((input) => input.addEventListener('change', (event) => {
@@ -5209,7 +5226,7 @@ function bindSettings() {
   $$('input[name="palette"]').forEach((input) => input.addEventListener('change', (event) => {
     document.documentElement.dataset.palette = event.target.value;
   }));
-  $('#saveSettings').addEventListener('click', async () => {
+  async function commitSettings() {
     const gateType = $('input[name="gateType"]:checked')?.value || 'hard';
     const palette = $('input[name="palette"]:checked')?.value || 'signal';
     const newTabMode = $('input[name="newTabMode"]:checked')?.value || 'dashboard';
@@ -5226,6 +5243,10 @@ function bindSettings() {
       gateType,
       focusBlocksSites: $('#focusBlocksSites').checked,
       celebrateTasks: $('#celebrateTasks').checked,
+      dashboardOverlay: clamp($('#dashboardOverlay').value, 0, 90, 55),
+      dashboardPanelTransparency: clamp($('#dashboardPanelTransparency').value, 0, 85, 30),
+      dashboardShowTaskBank: $('#dashboardShowTaskBank').checked,
+      dashboardBackground: $('input[name="dashboardBackground"]:checked')?.value === 'library' ? 'library' : 'none',
       celebrateTasksSound: $('#celebrateTasksSound').checked,
       palette: ['signal', 'cobalt', 'forest', 'orange'].includes(palette) ? palette : 'signal',
       colorMode: ['system', 'light', 'dark'].includes($('input[name="colorMode"]:checked')?.value)
@@ -5288,26 +5309,34 @@ function bindSettings() {
       $('#momentQuoteAuthor').textContent = '';
       delete $('#momentQuote').dataset.mode;
     }
-    settingsFormDirty = false;
     try {
       await save({ settings });
     } catch (_) {
-      settingsFormDirty = true;
       return;
     }
     if (obsidianVaultHandle && obsidianTagBefore !== settings.obsidianRecallTag) {
       await scanObsidianVault(false);
     }
-    $('#settingsStatus').textContent = 'Settings saved.';
-    setTimeout(() => { $('#settingsStatus').textContent = ''; }, 1800);
+    $('#settingsStatus').textContent = `Saved ${formatSaveTime(Date.now())}`;
+    clearTimeout(settingsSavedTimer);
+    settingsSavedTimer = setTimeout(() => { $('#settingsStatus').textContent = ''; }, 2600);
+  }
+
+  // One listener for the whole form. Every control now behaves the same way, which
+  // is what the mixture of instant-saving and Save-button controls made impossible
+  // to tell by looking.
+  $('#settingsView').addEventListener('change', (event) => {
+    if (event.target.closest('#dashboardWidgetList, .notion-settings, .data-settings')) return;
+    if (!event.target.matches('input, select, textarea')) return;
+    commitSettings();
   });
 }
 
 function renderSettings() {
-  // A stateUpdate can land at any moment (every storage write broadcasts one). Do
-  // not stamp stored values over a form the user is still editing - they would then
-  // click Save and persist the reverted values.
-  if (!settingsFormDirty) applySettingsFormValues();
+  // Every control saves on change now, so a stateUpdate can only ever carry values
+  // the form itself produced. The exception is a field being typed into, which
+  // applySettingsFormValues guards individually.
+  applySettingsFormValues();
   renderDashboardWidgetList();
   renderDashboardBackgroundSettings();
   toggleCustomQuoteFields();
@@ -5316,18 +5345,13 @@ function renderSettings() {
   renderNotionSettings();
 }
 
-function markSettingsFormDirty(event) {
-  // The widget list and the background controls save themselves immediately and are
-  // re-rendered afterwards, so marking them would leave the flag stuck on forever.
-  if (event.target.closest('#dashboardWidgetList, #dashboardBackgroundOptions')) return;
-  if (event.target.name === 'dashboardBackground') return;
-  if (event.target.id === 'focusBlocksSites') return;
-  // The Notion section owns its own saving; marking it would freeze the rest.
-  if (event.target.closest('.notion-settings, .data-settings')) return;
-  settingsFormDirty = true;
-}
-
 function applySettingsFormValues() {
+  // A render can arrive mid-typing from any storage write. Whatever field has
+  // focus keeps what is in it; every other field takes the stored value.
+  const focused = document.activeElement;
+  const typing = focused && $('#settingsView').contains(focused) && 'value' in focused
+    ? focused.value
+    : null;
   const gate = $(`input[name="gateType"][value="${state.settings.gateType}"]`);
   const palette = $(`input[name="palette"][value="${state.settings.palette}"]`);
   const colorMode = $(`input[name="colorMode"][value="${state.settings.colorMode || 'system'}"]`);
@@ -5382,6 +5406,7 @@ function applySettingsFormValues() {
     $('#obsidianExportFolder').value = normalizeObsidianExportFolder(state.settings.obsidianExportFolder);
   }
   $('#obsidianIncludeArchivedProjects').checked = Boolean(state.settings.obsidianIncludeArchivedProjects);
+  if (typing !== null) focused.value = typing;
 }
 
 function toggleCustomQuoteFields() {
@@ -5874,9 +5899,6 @@ function bindDashboardLayoutSettings() {
     if (output) output.textContent = `${event.target.value}%`;
   });
 
-  $('#dashboardShowTaskBank').addEventListener('change', async (event) => {
-    await save({ settings: { ...state.settings, dashboardShowTaskBank: event.target.checked } });
-  });
 
   $('#resetDashboardLayout').addEventListener('click', async () => {
     await save({
@@ -5889,9 +5911,9 @@ function bindDashboardLayoutSettings() {
     showToast('Start page layout reset.');
   });
 
-  $$('input[name="dashboardBackground"]').forEach((input) => input.addEventListener('change', async (event) => {
+  $$('input[name="dashboardBackground"]').forEach((input) => input.addEventListener('change', () => {
+    // The generic listener stores it; this only makes the next render fetch a photo.
     dashboardBackgroundLoaded = false;
-    await save({ settings: { ...state.settings, dashboardBackground: event.target.value === 'library' ? 'library' : 'none' } });
   }));
 
   $('#dashboardOverlay').addEventListener('input', (event) => {
@@ -5899,17 +5921,9 @@ function bindDashboardLayoutSettings() {
     document.documentElement.style.setProperty('--dashboard-overlay', clamp(event.target.value, 0, 90, 55) / 100);
   });
 
-  $('#dashboardOverlay').addEventListener('change', async (event) => {
-    await save({ settings: { ...state.settings, dashboardOverlay: clamp(event.target.value, 0, 90, 55) } });
-  });
-
   $('#dashboardPanelTransparency').addEventListener('input', (event) => {
     $('#dashboardPanelTransparencyValue').textContent = `${event.target.value}%`;
     setDashboardPanelTransparency(event.target.value);
-  });
-
-  $('#dashboardPanelTransparency').addEventListener('change', async (event) => {
-    await save({ settings: { ...state.settings, dashboardPanelTransparency: clamp(event.target.value, 0, 85, 30) } });
   });
 
   $('#dashboardNewBackground').addEventListener('click', async () => {

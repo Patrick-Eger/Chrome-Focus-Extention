@@ -109,6 +109,8 @@ counted toward a day.
   - complete an open task
 - Temporary site access that expires automatically
 - Permanent allow straight from the blocked page
+- Settings grouped into six sections with a navigation rail, and every control
+  saving as soon as it is changed
 - Full JSON export and import of every local record, including whiteboards
 - Migration of existing whitelist lists and todos when this build uses the same
   Chrome extension ID as the original extension
@@ -127,6 +129,25 @@ counted toward a day.
 
 All productivity data is stored in `chrome.storage.local`. No backend or account is
 required for the extension itself.
+
+## Settings
+
+Settings is split into six groups - **Focus**, **Planning**, **Appearance**,
+**New tab**, **Connections**, and **Data** - listed in a rail down the left side.
+One group is shown at a time, so the page is a short list of related switches
+instead of eleven panels stacked in one column.
+
+Every control saves the moment it is changed. There is no Save button: a
+**Saved HH:MM** line above the rail confirms the write and fades. Before this,
+six controls saved instantly while about forty waited for a Save button, with
+nothing on screen to tell the two kinds apart. A control that is being typed in
+keeps what is in it even if a background sync re-renders the page underneath.
+
+Two panels moved to where they belong rather than where there happened to be
+room: the task-celebration switches left the blocked-site gate for their own
+**Finishing a task** panel, and the workday, timeline, and auto-start settings
+were collected into **Your working day** instead of sitting half in Timing and
+half in the Google Calendar panel.
 
 ## Backup: export and import
 
@@ -507,7 +528,7 @@ estimate for tasks without an estimate are configurable in Settings.
 node --test
 ```
 
-288 checks across 15 suites, no dependencies and no build step - `node --test`
+475 checks across 16 suites, no dependencies and no build step - `node --test`
 discovers `tests/*.test.mjs` on its own. Node 20 or newer.
 
 `background.js` and `newtab.js` are browser scripts, so the suites evaluate them in
@@ -519,7 +540,8 @@ Animations, Web Audio and `fetch`.
 What they cover: storage migration and normalisation, the calendar merge and its
 conflict rules, recurrence and materialisation, export and import, the Obsidian
 markdown, the Notion request payloads, host validation, the blocking rule, the day
-scorecard, task completion, and whiteboard geometry and interaction.
+scorecard, task completion, whiteboard geometry and interaction, and the
+structure of the Settings page.
 
 What they do not: real Chrome, real rendering, and the real Google and Notion APIs.
 Anything visual, and the first call against a live API, still has to be tried by

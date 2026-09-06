@@ -479,8 +479,18 @@
       </section>
 
       <section id="settingsView" class="view" data-title="Settings">
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label="Settings sections">
+            <button class="settings-nav-button active" data-settings-nav="focus" type="button">Focus</button>
+            <button class="settings-nav-button" data-settings-nav="planning" type="button">Planning</button>
+            <button class="settings-nav-button" data-settings-nav="appearance" type="button">Appearance</button>
+            <button class="settings-nav-button" data-settings-nav="newtab" type="button">New tab</button>
+            <button class="settings-nav-button" data-settings-nav="connections" type="button">Connections</button>
+            <button class="settings-nav-button" data-settings-nav="data" type="button">Data</button>
+          </nav>
+          <div class="settings-panes">
         <div class="settings-grid">
-          <section class="settings-section account-settings">
+          <section class="settings-section account-settings" data-settings-group="connections">
             <div class="account-settings-heading">
               <div><span class="eyebrow">Connected services</span><h2>Google Calendar</h2></div>
               <span id="settingsCalendarState" class="connection-state">Not connected</span>
@@ -501,22 +511,11 @@
               <label class="field-label">Default calendar
                 <select id="calendarDefaultId"><option value="primary">Primary calendar</option></select>
               </label>
-              <label class="field-label">Timeline starts
-                <input id="calendarDayStart" type="time">
-              </label>
-              <label class="field-label">Timeline ends
-                <input id="calendarDayEnd" type="time">
-              </label>
               <label class="field-label">Event reminder
                 <span class="input-with-unit"><input id="calendarReminderMinutes" type="number" min="0" max="120" step="5"><span>minutes</span></span>
               </label>
               <label class="toggle-setting"><input id="calendarReminderEnabled" type="checkbox"><span><strong>Remind before blocks</strong>Show a browser reminder and add it to synced Google events.</span></label>
               <label class="toggle-setting"><input id="calendarAutoSyncBlocks" type="checkbox"><span><strong>Add blocks to Google</strong>Sync newly planned work blocks by default.</span></label>
-              <label class="toggle-setting"><input id="autoStartBlocks" type="checkbox"><span><strong>Start blocks automatically</strong>Turn on focus mode when a planned block begins.</span></label>
-              <label class="toggle-setting"><input id="autoOpenWorkspaceTabs" type="checkbox"><span><strong>Open workspace tabs</strong>Open saved tabs when a block starts automatically.</span></label>
-              <label class="field-label">Late-start grace
-                <span class="input-with-unit"><input id="autoStartGraceMinutes" type="number" min="0" max="60" step="5"><span>minutes</span></span>
-              </label>
             </div>
             <div id="settingsCalendarSetup" class="calendar-setup hidden">
               <div><strong>OAuth setup required</strong><span>Create a Chrome Extension OAuth client using this extension ID, then add it to manifest.json.</span></div>
@@ -525,7 +524,7 @@
             </div>
             <p id="settingsCalendarMessage" class="form-status" role="status"></p>
           </section>
-          <section class="settings-section account-settings obsidian-settings">
+          <section class="settings-section account-settings obsidian-settings" data-settings-group="connections">
             <div class="account-settings-heading">
               <div><span class="eyebrow">Connected services</span><h2>Obsidian vault</h2></div>
               <span id="settingsObsidianState" class="connection-state">Not connected</span>
@@ -560,7 +559,7 @@
             <p id="obsidianSyncMessage" class="form-status" role="status"></p>
             <p id="settingsObsidianMessage" class="form-status" role="status"></p>
           </section>
-          <section class="settings-section account-settings notion-settings">
+          <section class="settings-section account-settings notion-settings" data-settings-group="connections">
             <div class="account-settings-heading">
               <div><span class="eyebrow">Connected services</span><h2>Notion</h2></div>
               <span id="settingsNotionState" class="connection-state">Not connected</span>
@@ -596,7 +595,7 @@
             </div>
             <p id="notionSyncMessage" class="form-status" role="status"></p>
           </section>
-          <section class="settings-section data-settings">
+          <section class="settings-section data-settings" data-settings-group="data">
             <span class="eyebrow">Backup</span>
             <h2>Your data</h2>
             <p>Everything lives in this Chrome profile only. An export is the one way to move it to another machine or get it back after a reset.</p>
@@ -609,7 +608,7 @@
             <p id="dataStatus" class="form-status" role="status"></p>
             <p class="data-note">The file holds projects, tasks, notes, the Inbox, day plans, reminders, workspaces, settings, and every project whiteboard. The connected Google account and its sync tokens are left out. Importing replaces everything currently in the extension.</p>
           </section>
-          <section class="settings-section appearance-settings">
+          <section class="settings-section appearance-settings" data-settings-group="appearance">
             <span class="eyebrow">Interface appearance</span>
             <h2>Appearance</h2>
             <p>Choose how Focus Desk follows your display and which signal color marks active controls.</p>
@@ -627,12 +626,10 @@
               <label><input type="radio" name="palette" value="orange"><span class="palette-swatch orange"><i></i><i></i><i></i></span><strong>International orange</strong></label>
             </div>
           </section>
-          <section class="settings-section">
+          <section class="settings-section" data-settings-group="focus">
             <span class="eyebrow">Blocked-site behavior</span>
             <h2>Focus gate</h2>
             <label class="toggle-setting"><input id="focusBlocksSites" type="checkbox"><span><strong>Block sites during focus</strong>Turn this off to keep the timer and workspace without redirecting anything.</span></label>
-            <label class="toggle-setting"><input id="celebrateTasks" type="checkbox"><span><strong>Celebrate finished tasks</strong>A short burst where you ticked the task off.</span></label>
-            <label class="toggle-setting"><input id="celebrateTasksSound" type="checkbox"><span><strong>Play a sound with it</strong>A two-note chime. Turn this off in shared rooms.</span></label>
             <p>Choose what must happen before a blocked site can open temporarily.</p>
             <div id="gateOptions" class="gate-options">
               <label><input type="radio" name="gateType" value="hard"> <span><strong>Hard block</strong>No temporary access.</span></label>
@@ -642,7 +639,41 @@
               <label><input type="radio" name="gateType" value="task"> <span><strong>Complete a task</strong>Finish one open task.</span></label>
             </div>
           </section>
-          <section class="settings-section">
+          <section class="settings-section" data-settings-group="planning">
+            <span class="eyebrow">Day planning</span>
+            <h2>Your working day</h2>
+            <p>The hours Plan my day fills, the span the timelines show, and what happens when a planned block comes round.</p>
+            <div class="workday-setting-grid">
+              <label class="field-label">Workday starts
+                <input id="workdayStart" type="time">
+              </label>
+              <label class="field-label">Workday ends
+                <input id="workdayEnd" type="time">
+              </label>
+              <label class="field-label">Timeline starts
+                <input id="calendarDayStart" type="time">
+              </label>
+              <label class="field-label">Timeline ends
+                <input id="calendarDayEnd" type="time">
+              </label>
+            </div>
+            <label class="field-label">Default task estimate
+              <span class="input-with-unit"><input id="defaultTaskEstimateMinutes" type="number" min="5" max="240" step="5"><span>minutes</span></span>
+            </label>
+            <label class="toggle-setting"><input id="autoStartBlocks" type="checkbox"><span><strong>Start blocks automatically</strong>Turn on focus mode when a planned block begins.</span></label>
+            <label class="toggle-setting"><input id="autoOpenWorkspaceTabs" type="checkbox"><span><strong>Open workspace tabs</strong>Open saved tabs when a block starts automatically.</span></label>
+            <label class="field-label">Late-start grace
+              <span class="input-with-unit"><input id="autoStartGraceMinutes" type="number" min="0" max="60" step="5"><span>minutes</span></span>
+            </label>
+          </section>
+          <section class="settings-section" data-settings-group="appearance">
+            <span class="eyebrow">Feedback</span>
+            <h2>Finishing a task</h2>
+            <p>What happens the moment a task is ticked off, anywhere in the app.</p>
+            <label class="toggle-setting"><input id="celebrateTasks" type="checkbox"><span><strong>Celebrate finished tasks</strong>A short burst where you ticked the task off.</span></label>
+            <label class="toggle-setting"><input id="celebrateTasksSound" type="checkbox"><span><strong>Play a sound with it</strong>A two-note chime. Turn this off in shared rooms.</span></label>
+          </section>
+          <section class="settings-section" data-settings-group="focus">
             <span class="eyebrow">Session defaults</span>
             <h2>Timing</h2>
             <label class="field-label">Temporary access
@@ -651,19 +682,8 @@
             <label class="field-label">Default focus session
               <span class="input-with-unit"><input id="defaultFocusMinutes" type="number" min="1" max="180"><span>minutes</span></span>
             </label>
-            <div class="workday-setting-grid">
-              <label class="field-label">Workday starts
-                <input id="workdayStart" type="time">
-              </label>
-              <label class="field-label">Workday ends
-                <input id="workdayEnd" type="time">
-              </label>
-            </div>
-            <label class="field-label">Default task estimate
-              <span class="input-with-unit"><input id="defaultTaskEstimateMinutes" type="number" min="5" max="240" step="5"><span>minutes</span></span>
-            </label>
           </section>
-          <section class="settings-section start-page-settings">
+          <section class="settings-section start-page-settings" data-settings-group="appearance">
             <span class="eyebrow">Dashboard home</span>
             <h2>Start page</h2>
             <p>Choose which cards the dashboard shows, which column they sit in, and how they are ordered. You can also arrange them by dragging on the <button class="text-button" data-go-view="today" type="button">start page itself</button>.</p>
@@ -688,7 +708,7 @@
               <p id="dashboardBackgroundStatus" class="form-status"></p>
             </div>
           </section>
-          <section class="settings-section moment-settings">
+          <section class="settings-section moment-settings" data-settings-group="newtab">
             <span class="eyebrow">New tab appearance</span>
             <h2>Moment screen</h2>
             <p>Choose the screen shown on new tabs, who it greets, and where its background photos come from.</p>
@@ -755,9 +775,8 @@
             </div>
           </section>
         </div>
-        <div class="settings-save-bar">
-          <p id="settingsStatus" class="form-status"></p>
-          <button id="saveSettings" class="button primary">Save settings</button>
+        <p id="settingsStatus" class="settings-saved" role="status"></p>
+          </div>
         </div>
       </section>
     </main>

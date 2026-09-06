@@ -898,8 +898,6 @@ textarea { resize: vertical; line-height: 1.55; }
 .visibility-options label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
 .visibility-options input { width: 17px; height: 17px; accent-color: var(--accent); }
 .custom-quote-fields { display: grid; gap: 8px; }
-.settings-save-bar { margin-top: 18px; padding: 14px 18px; display: flex; align-items: center; justify-content: flex-end; gap: 16px; border: 1px solid var(--line-dark); background: var(--paper); }
-.settings-save-bar .form-status { margin-right: auto !important; }
 
 .moment-screen {
   position: fixed;
@@ -1714,4 +1712,31 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 @media (max-width: 760px) {
   .onboarding-step { grid-template-columns: 24px minmax(0, 1fr); }
   .onboarding-step .button { grid-column: 2; justify-self: start; }
+}
+
+/* Settings navigation */
+.settings-layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; }
+.settings-nav { position: sticky; top: 96px; display: flex; flex-direction: column; border: 1px solid var(--line-dark); background: var(--panel-bg); }
+.settings-nav-button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+.settings-nav-button:last-child { border-bottom: 0; }
+.settings-nav-button:hover { color: var(--ink); background: var(--surface); }
+.settings-nav-button.active { border-left-color: var(--accent); color: var(--ink); font-weight: 700; }
+.settings-panes { min-width: 0; }
+.settings-saved { min-height: 20px; margin: 16px 0 0; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .settings-layout { grid-template-columns: 1fr; gap: 16px; }
+  .settings-nav { position: static; flex-direction: row; overflow-x: auto; }
+  .settings-nav-button { min-width: max-content; border-bottom: 0; border-left: 0; border-bottom: 3px solid transparent; }
+  .settings-nav-button.active { border-left: 0; border-bottom-color: var(--accent); }
 }
