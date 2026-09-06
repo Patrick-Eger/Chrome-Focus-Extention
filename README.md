@@ -438,6 +438,30 @@ in-progress state. It places them into the first available workday slots around
 existing blocks and timed Calendar events. Workday boundaries and the fallback
 estimate for tasks without an estimate are configurable in Settings.
 
+## Tests
+
+```bash
+node --test
+```
+
+288 checks across 15 suites, no dependencies and no build step - `node --test`
+discovers `tests/*.test.mjs` on its own. Node 20 or newer.
+
+`background.js` and `newtab.js` are browser scripts, so the suites evaluate them in
+a `vm` context against the stubs in `tests/helpers/`: a `chrome` API backed by an
+in-memory store that fires `storage.onChanged`, a DOM small enough to be honest
+about but real enough to deliver pointer events, and recording stubs for Web
+Animations, Web Audio and `fetch`.
+
+What they cover: storage migration and normalisation, the calendar merge and its
+conflict rules, recurrence and materialisation, export and import, the Obsidian
+markdown, the Notion request payloads, host validation, the blocking rule, the day
+scorecard, task completion, and whiteboard geometry and interaction.
+
+What they do not: real Chrome, real rendering, and the real Google and Notion APIs.
+Anything visual, and the first call against a live API, still has to be tried by
+hand.
+
 ## Project structure
 
 - `background.js` - storage migration, focus state, blocking rules, work-block
@@ -448,6 +472,7 @@ estimate for tasks without an estimate are configurable in Settings.
 - `blocked.html`, `blocked.css`, `blocked.js` - focus gate experience
 - `popup.html`, `popup.css`, `popup.js` - quick controls
 - `manifest.json` - Manifest V3 permissions, entry points, and OAuth configuration
+- `tests/` - `node --test` suites and their stubs; not loaded by the extension
 
 ## Current boundaries
 
