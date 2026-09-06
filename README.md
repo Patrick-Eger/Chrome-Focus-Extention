@@ -107,6 +107,7 @@ counted toward a day.
   - state an intention
   - complete an open task
 - Temporary site access that expires automatically
+- Permanent allow straight from the blocked page
 - Full JSON export and import of every local record, including whiteboards
 - Migration of existing whitelist lists and todos when this build uses the same
   Chrome extension ID as the original extension
@@ -275,9 +276,19 @@ blocked page unless the host belongs to the active workspace or has a temporary
 access pass. Google authentication domains remain available so Calendar login can
 complete. Ending the session removes the blocking rule.
 
-The popup's **Allow current site** action permanently adds the current domain to the
-active workspace. A successful focus gate only grants access for the configured
-number of minutes.
+The blocked page itself offers **Always allow <site>** beside the gate. It asks
+first, naming the workspace it is about to change, then adds the site and opens it.
+The popup's **Allow current site** does the same from any tab. A successful focus
+gate, by contrast, only grants access for the configured number of minutes.
+
+Allowing a site covers its subdomains but not its parent: allowing
+`news.example.com` does not open `example.com`. To allow a whole domain, add it
+under **Workspaces** - that avoids Focus Desk guessing where a name like
+`example.co.uk` should be cut.
+
+The blocked page never writes the workspace list itself. It reads state once when
+it loads and has no way to hear about later changes, so the write goes through the
+service worker, which touches only the one workspace.
 
 Use **Save page to Inbox** in the popup for a one-click link capture. Open the side
 panel when the page needs context or should go directly into a project. The page

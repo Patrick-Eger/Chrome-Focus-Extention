@@ -477,6 +477,8 @@ async function handleMessage(message, sender) {
       return deleteRecurringSeries(message.id, Boolean(message.keepPlanned));
     case 'skipSeriesOccurrence':
       return skipSeriesOccurrence(message.seriesId, message.dateKey);
+    case 'allowDomain':
+      return allowDomain(message.domain);
     case 'completeTask':
       return completeTask(message.id);
     case 'completeReminder':
@@ -2205,6 +2207,37 @@ async function skipSeriesOccurrence(seriesId, dateKeyValue) {
     tasks: (current.tasks || []).filter((task) => !(task.seriesId === id && task.plannedDate === dateKey))
   }));
   return {};
+}
+
+// The blocked page reads state once on load and has no storage listener, so it
+// must not write the workspace array itself - it would overwrite anything changed
+// since. The worker owns the write and touches only the one workspace.
+async function allowDomain(input) {
+  await ensureInitialized();
+  const domain = cleanDomain(input);
+  if (!validateDomain(domain)) throw new Error('That site cannot be added to a workspace.');
+
+  let workspaceName = '';
+  let alreadyAllowed = false;
+  await runStorageUpdate(['workspaces', 'activeWorkspaceId'], (current) => {
+    const activeId = current.activeWorkspaceId || 'default';
+    const workspaces = current.workspaces || [];
+    const target = workspaces.find((workspace) => workspace.id === activeId) || workspaces[0];
+    if (!target) throw new Error('There is no workspace to add this site to.');
+    workspaceName = target.name;
+    if ((target.domains || []).includes(domain)) {
+      alreadyAllowed = true;
+      return {};
+    }
+    return {
+      workspaces: workspaces.map((workspace) => (workspace.id === target.id
+        ? { ...workspace, domains: [...(workspace.domains || []), domain], updatedAt: Date.now() }
+        : workspace))
+    };
+  });
+
+  await updateBlockRule();
+  return { domain, workspaceName, alreadyAllowed };
 }
 
 async function completeTask(taskId) {

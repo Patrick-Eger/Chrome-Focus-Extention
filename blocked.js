@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     blockedDomain = '';
   }
   $('#blockedDomain').textContent = blockedDomain || 'This site is blocked.';
+  $('#allowAlways').addEventListener('click', allowAlways);
   await loadState();
   setInterval(updateTimer, 1000);
 });
@@ -45,6 +46,11 @@ async function loadState() {
     $('#accessNote').textContent = state.settings.gateType === 'hard'
       ? 'Temporary access is disabled.'
       : `Access lasts ${state.settings.unlockMinutes} minutes.`;
+    $('#allowAlways').textContent = blockedDomain ? `Always allow ${blockedDomain}` : 'Always allow this site';
+    $('#allowAlways').disabled = !blockedDomain;
+    $('#allowAlwaysNote').textContent = blockedDomain
+      ? `Adds ${blockedDomain} and its subdomains to ${workspace.name} for good. Remove it later under Workspaces.`
+      : '';
     updateTimer();
     renderGate();
   } catch (error) {
@@ -173,6 +179,27 @@ function renderTaskGate() {
     }
     await unlock();
   });
+}
+
+async function allowAlways() {
+  if (!blockedDomain || !blockedUrl) return showError('The original site address is missing.');
+  const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId) || state.workspaces[0];
+  const name = workspace ? workspace.name : 'this workspace';
+  // A permanent change to the workspace, so it asks rather than just doing it -
+  // and says which workspace, because that is what actually changes.
+  if (!confirm(`Always allow ${blockedDomain} in ${name}?\n\nIt stays open in every future focus session until you remove it under Workspaces.`)) {
+    return;
+  }
+  const button = $('#allowAlways');
+  button.disabled = true;
+  try {
+    showError('');
+    await send('allowDomain', { domain: blockedDomain });
+    window.location.replace(blockedUrl);
+  } catch (error) {
+    button.disabled = false;
+    showError(error.message);
+  }
 }
 
 async function unlock() {

@@ -73,7 +73,7 @@ export function makeWorker({ store = {}, fetchImpl } = {}) {
     'connectNotion', 'disconnectNotion', 'syncNotion', 'notionRequest', 'notionTaskProperties',
     'notionProjectBlocks', 'normalizeNotionSync', 'normalizeRecurringSeries', 'seriesOccursOn',
     'materializeRecurringSeries', 'recurrenceHorizonKeys', 'saveRecurringSeries',
-    'deleteRecurringSeries', 'skipSeriesOccurrence', 'applyRecurrence'];
+    'deleteRecurringSeries', 'skipSeriesOccurrence', 'applyRecurrence', 'allowDomain'];
   const api = {};
   for (const n of names) { try { api[n] = vm.runInContext(n, ctx); } catch (_) {} }
   return { api, store, changes, alarms, chrome };

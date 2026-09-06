@@ -79,3 +79,5 @@ textarea { min-height: 100px; resize: vertical; }
   .gate-form { flex-direction: column; }
   .blocked-actions { align-items: flex-start; flex-direction: column; }
 }
+
+.allow-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
