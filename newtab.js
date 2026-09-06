@@ -3898,6 +3898,24 @@ async function syncProjectsToObsidian(projectIds, {
       }
     }
 
+    // Day notes are not project-scoped, so they ride along with a full sync only.
+    if (projectIds.length > 1 || !state.projects.length) {
+      obsidianSyncMessage = 'Syncing day notes...';
+      renderObsidianSettings();
+      try {
+        records.__days = await exportDaysToObsidian(records.__days, { force });
+      } catch (error) {
+        records.__days = {
+          ...(records.__days || {}),
+          vaultName: obsidianVaultHandle.name,
+          status: error.name === 'ObsidianSyncConflictError' ? 'conflict' : 'error',
+          lastError: error.message,
+          lastAttemptAt: Date.now()
+        };
+        failures.push({ project: { name: 'Day notes' }, error });
+      }
+    }
+
     try {
       await chrome.storage.local.set({ obsidianSyncRecords: records });
     } catch (error) {
@@ -3929,6 +3947,82 @@ async function syncProjectsToObsidian(projectIds, {
     renderObsidianSettings();
     renderProjects();
   }
+}
+
+// Same conflict rule as the project export: a file the user edited in Obsidian is
+// left alone rather than overwritten. Days share one record instead of one each.
+async function exportDaysToObsidian(previousRecord = null, { force = false } = {}) {
+  const exportRoot = normalizeObsidianExportFolder(state.settings.obsidianExportFolder);
+  const reusableRecord = previousRecord
+    && previousRecord.vaultName === obsidianVaultHandle.name
+    && previousRecord.exportRoot === exportRoot
+    ? previousRecord
+    : null;
+  const dayKeys = obsidianExportDayKeys();
+  if (!dayKeys.length) {
+    return {
+      vaultName: obsidianVaultHandle.name,
+      exportRoot,
+      files: {},
+      dayCount: 0,
+      status: 'synced',
+      lastError: '',
+      lastSyncedAt: Date.now(),
+      lastAttemptAt: Date.now()
+    };
+  }
+
+  const outputs = new Map();
+  for (const dateKey of dayKeys) {
+    outputs.set(`${exportRoot}/Days/${dateKey}.md`, dayToObsidianMarkdown(dateKey));
+  }
+
+  const prepared = [];
+  const conflicts = [];
+  for (const [path, content] of outputs) {
+    const generatedHash = await hashObsidianText(content);
+    const existing = await readObsidianFile(path);
+    const previousHash = reusableRecord && reusableRecord.files
+      && reusableRecord.files[path] && reusableRecord.files[path].hash;
+    if (existing != null) {
+      const existingHash = await hashObsidianText(existing);
+      if (!force && existingHash !== generatedHash && (!previousHash || existingHash !== previousHash)) {
+        conflicts.push(path);
+        continue;
+      }
+      if (existingHash === generatedHash) {
+        prepared.push({ path, content, hash: generatedHash, write: false });
+        continue;
+      }
+    }
+    prepared.push({ path, content, hash: generatedHash, write: true });
+  }
+  if (conflicts.length) {
+    const error = new Error(`Obsidian changed ${conflicts.length} day note${conflicts.length === 1 ? '' : 's'}. Focus Desk left them untouched.`);
+    error.name = 'ObsidianSyncConflictError';
+    error.paths = conflicts;
+    throw error;
+  }
+
+  for (const file of prepared) {
+    if (file.write) await writeObsidianFile(file.path, file.content);
+  }
+
+  const now = Date.now();
+  const files = { ...(reusableRecord && reusableRecord.files || {}) };
+  for (const file of prepared) {
+    files[file.path] = { hash: file.hash, syncedAt: now };
+  }
+  return {
+    vaultName: obsidianVaultHandle.name,
+    exportRoot,
+    files,
+    dayCount: dayKeys.length,
+    status: 'synced',
+    lastError: '',
+    lastSyncedAt: now,
+    lastAttemptAt: now
+  };
 }
 
 async function exportProjectToObsidian(project, previousRecord = null, { force = false } = {}) {
@@ -4014,6 +4108,91 @@ async function exportProjectToObsidian(project, previousRecord = null, { force =
   };
 }
 
+// Markdown checklists, so the boxes are tickable in Obsidian. Grouped by state
+// with the open ones first, which is the order they are useful in.
+function obsidianTaskList(project) {
+  const tasks = state.tasks
+    .filter((task) => task.projectId === project.id)
+    .sort((a, b) => Number(a.completed) - Number(b.completed)
+      || Number(a.createdAt || 0) - Number(b.createdAt || 0));
+  if (!tasks.length) return '_No tasks._';
+  return tasks.map((task) => {
+    const meta = [
+      task.priority && task.priority !== 'medium' ? task.priority : '',
+      task.dueDate ? `due ${task.dueDate}` : '',
+      task.estimateMinutes ? `${task.estimateMinutes} min` : '',
+      ...(task.labels || [])
+    ].filter(Boolean);
+    const subtasks = (task.subtasks || []).map((sub) =>
+      `\n  - [${sub.completed ? 'x' : ' '}] ${escapeObsidianLinkLabel(sub.title)}`).join('');
+    return `- [${task.completed ? 'x' : ' '}] ${escapeObsidianLinkLabel(task.title)}`
+      + (meta.length ? ` _(${meta.join(' · ')})_` : '')
+      + subtasks;
+  }).join('\n');
+}
+
+// A day note per planned date, in the shape daily-notes users expect. Bounded on
+// purpose: an unbounded planner would write hundreds of files on every sync.
+const OBSIDIAN_DAY_HISTORY_DAYS = 90;
+
+function obsidianExportDayKeys() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - OBSIDIAN_DAY_HISTORY_DAYS);
+  const earliest = dateKeyFromDate(cutoff);
+  const keys = new Set();
+  for (const [dateKey, blocks] of Object.entries(state.dailyPlans || {})) {
+    if (dateKey >= earliest && (blocks || []).length) keys.add(dateKey);
+  }
+  for (const reminder of state.reminders || []) {
+    if (reminder.date && reminder.date >= earliest) keys.add(reminder.date);
+  }
+  return [...keys].sort();
+}
+
+function dayToObsidianMarkdown(dateKey) {
+  const blocks = [...(state.dailyPlans[dateKey] || [])]
+    .filter((block) => block.status !== 'cancelled')
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  const reminders = (state.reminders || [])
+    .filter((reminder) => reminder.date === dateKey)
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  const planned = blocks.reduce((sum, block) => sum + (Number(block.duration) || 0), 0);
+
+  const frontmatter = [
+    '---',
+    'focus_desk_type: day',
+    `date: ${obsidianYamlString(dateKey)}`,
+    `planned_minutes: ${planned}`,
+    'tags:',
+    '  - focus-desk',
+    '  - focus-desk-day',
+    '---'
+  ].join('\n');
+
+  const planLines = blocks.length
+    ? blocks.map((block) => {
+        const project = getProject(block.projectId);
+        const end = minutesToTime(timeToMinutes(block.time) + (Number(block.duration) || 0));
+        const done = block.status === 'completed';
+        return `- [${done ? 'x' : ' '}] ${block.time}–${end} ${escapeObsidianLinkLabel(block.title)}`
+          + (project ? ` _(${escapeObsidianLinkLabel(project.name)})_` : '');
+      }).join('\n')
+    : '_Nothing planned._';
+
+  const sections = [
+    frontmatter,
+    // Not formatDayHeading: it says "Today", which is baked into the file and wrong
+    // the next morning.
+    `# ${obsidianMarkdownHeading(new Date(`${dateKey}T12:00:00`).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))}`,
+    `## Plan\n\n${planLines}`,
+    reminders.length
+      ? `## Reminders\n\n${reminders.map((reminder) =>
+          `- [${reminder.status === 'done' ? 'x' : ' '}] ${reminder.time} ${escapeObsidianLinkLabel(reminder.title)}`).join('\n')}`
+      : ''
+  ];
+  return `${sections.filter(Boolean).join('\n\n')}\n`;
+}
+
 function projectToObsidianMarkdown(project, notes, notePaths) {
   const workspace = getWorkspace(project.workspaceId);
   const links = Array.isArray(project.links) ? project.links : [];
@@ -4040,6 +4219,7 @@ function projectToObsidianMarkdown(project, notes, notePaths) {
     `## Links\n\n${links.length
       ? links.map((link) => `- [${escapeObsidianLinkLabel(link.title || hostnameFromUrl(link.url))}](${link.url})`).join('\n')
       : '_No saved links._'}`,
+    `## Tasks\n\n${obsidianTaskList(project)}`,
     `## Notes\n\n${notes.length
       ? notes.map((note) => `- [[${notePaths[note.id].split('/').pop().replace(/\.md$/i, '')}|${escapeObsidianWikiLabel(note.title)}]]`).join('\n')
       : '_No project notes._'}`

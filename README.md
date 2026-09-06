@@ -63,8 +63,8 @@ that block every website outside the active workspace allowlist.
 - Markdown notes linked to either a workspace or a specific project and organized
   in collapsible workspace/project folders
 - Local Obsidian vault recall with configurable inline or frontmatter tags
-- One-way Obsidian export for projects, saved links, and project notes with
-  per-file conflict protection
+- One-way Obsidian export for projects, tasks, saved links, project notes, and a
+  day note per planned day, with per-file conflict protection
 - Flashcards created from notes
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
   reminders in Google and the browser, incremental background sync, and visible
@@ -179,11 +179,20 @@ Focus Desk/
       Project.md
       Notes/
         Note title--note-id.md
+  Days/
+    2026-09-06.md
 ```
 
-This is intentionally a one-way export from Focus Desk. It includes project
-metadata, saved links, and notes assigned to the project. Tasks and day plans are
-never exported. Before every write, Focus Desk compares each existing file with
+Tasks now travel with their project as a Markdown checklist, so the boxes are
+tickable in Obsidian, with priority, due date, estimate and labels beside each one
+and subtasks nested under it. Day plans become one note per day under `Days/`, in
+the shape daily-notes users expect: the blocks as a timed checklist with their
+project, reminders in their own section, and the planned minutes in the
+frontmatter. Day notes cover the last 90 days and everything upcoming - without a
+bound, a long-running planner would rewrite hundreds of files on every sync. They
+are written by **Sync all projects**, not by a single project's sync.
+
+This is intentionally a one-way export from Focus Desk. Before every write, Focus Desk compares each existing file with
 the last exported version. Files changed in Obsidian are left untouched and the
 project is marked for review; replacing them requires explicit confirmation.
 
