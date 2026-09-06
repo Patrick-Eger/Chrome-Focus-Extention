@@ -28,6 +28,8 @@ let dayReviewOpen = false;
 let routinesOpen = false;
 let draggedPlannerTaskId = null;
 let noteFoldersInitialized = false;
+let studySession = null;
+let studyRevealed = false;
 let inboxStatusFilter = 'open';
 let inboxTypeFilter = 'all';
 let selectedPlannerDate = null;
@@ -161,6 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindProjects();
   bindTasks();
   bindNotes();
+  bindCards();
   bindWorkspaces();
   bindCalendar();
   bindObsidianRecall();
@@ -254,6 +257,7 @@ function render() {
   renderProjects();
   renderTasks();
   renderNotes();
+  renderCards();
   renderWorkspaces();
   renderCalendar();
   renderObsidianRecall();
@@ -3190,6 +3194,172 @@ function taskRow(task) {
   </article>`;
 }
 
+function dueFlashcards(dateKey = todayKey()) {
+  return (state.flashcards || []).filter((card) => (card.dueDate || dateKey) <= dateKey);
+}
+
+function flashcardNoteTitle(card) {
+  const note = (state.notes || []).find((entry) => entry.id === card.noteId);
+  return note ? note.title || 'Untitled note' : 'No note';
+}
+
+// Shown on the grade buttons so the choice is informed rather than a guess at
+// what each one costs.
+function gradePreview(card, grade) {
+  const next = previewSchedule(card, grade);
+  if (next.interval === 0) return 'today';
+  if (next.interval === 1) return 'tomorrow';
+  if (next.interval < 30) return `${next.interval} days`;
+  if (next.interval < 365) return `${Math.round(next.interval / 30)} months`;
+  return `${(next.interval / 365).toFixed(1)} years`;
+}
+
+// Mirrors the worker's SM-2 so the buttons can show what they will do. The worker
+// still owns the write; this only previews it.
+function previewSchedule(card, grade) {
+  const ease = clamp(card.easeFactor, 1.3, 3, 2.5);
+  let interval = clamp(card.interval, 0, 3650, 0);
+  let repetitions = clamp(card.repetitions, 0, 10000, 0);
+  if (grade === 'again') return { interval: 0 };
+  if (grade === 'hard') return { interval: interval ? Math.max(1, Math.round(interval * 1.2)) : 1 };
+  repetitions += 1;
+  if (repetitions === 1) interval = 1;
+  else if (repetitions === 2) interval = 6;
+  else interval = Math.max(1, Math.round(interval * ease));
+  if (grade === 'easy') interval = Math.max(interval + 1, Math.round(interval * 1.3));
+  return { interval: Math.min(interval, 3650) };
+}
+
+function renderCards() {
+  const cards = state.flashcards || [];
+  const due = dueFlashcards();
+  $('#cardCount').textContent = due.length;
+  $('#cardsSummary').textContent = cards.length
+    ? due.length
+      ? `${due.length} card${due.length === 1 ? '' : 's'} due of ${cards.length}.`
+      : `Nothing due. ${cards.length} card${cards.length === 1 ? '' : 's'} scheduled.`
+    : 'No cards yet.';
+  $('#startStudy').disabled = !due.length || studySession !== null;
+
+  $('#cardsList').innerHTML = cards.length ? cards
+    .slice()
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+    .map((card) => `
+      <article class="card-row${(card.dueDate || '') <= todayKey() ? ' due' : ''}" data-card="${escapeHtml(card.id)}">
+        <div class="card-row-main">
+          <strong>${escapeHtml(card.question)}</strong>
+          <span>${escapeHtml(card.answer)}</span>
+          <small>${escapeHtml(flashcardNoteTitle(card))} · due ${escapeHtml(formatShortDate(card.dueDate))}${card.repetitions ? ` · ${card.repetitions} review${card.repetitions === 1 ? '' : 's'}` : ' · new'}${card.lapses ? ` · ${card.lapses} lapse${card.lapses === 1 ? '' : 's'}` : ''}</small>
+        </div>
+        <div class="button-row">
+          <button class="text-button" data-edit-card="${escapeHtml(card.id)}" type="button">Edit</button>
+          <button class="text-button danger-text" data-delete-card="${escapeHtml(card.id)}" type="button">Delete</button>
+        </div>
+      </article>`).join('')
+    : emptyState('Create cards from the flashcard box under a note.');
+
+  renderStudy();
+}
+
+function renderStudy() {
+  const active = studySession && studySession.queue.length;
+  $('#studyPanel').classList.toggle('hidden', !studySession);
+  if (!studySession) return;
+  if (!active) {
+    $('#studyQuestion').textContent = '';
+    $('#studyAnswerWrap').classList.add('hidden');
+    $('#studyReveal').classList.add('hidden');
+    $('#studyGrades').classList.add('hidden');
+    $('#studyDone').classList.remove('hidden');
+    $('#studyDone').textContent = `Done. ${studySession.reviewed} card${studySession.reviewed === 1 ? '' : 's'} reviewed.`;
+    $('#studyProgress').textContent = '';
+    return;
+  }
+  const card = studySession.queue[0];
+  $('#studyDone').classList.add('hidden');
+  $('#studyProgress').textContent = `${studySession.reviewed + 1} of ${studySession.reviewed + studySession.queue.length}`;
+  $('#studyQuestion').textContent = card.question;
+  $('#studyAnswer').textContent = card.answer;
+  $('#studyAnswerWrap').classList.toggle('hidden', !studyRevealed);
+  $('#studyReveal').classList.toggle('hidden', studyRevealed);
+  $('#studyGrades').classList.toggle('hidden', !studyRevealed);
+  if (studyRevealed) {
+    $$('#studyGrades [data-grade]').forEach((button) => {
+      button.querySelector('small').textContent = gradePreview(card, button.dataset.grade);
+    });
+  }
+}
+
+function bindCards() {
+  $('#startStudy').addEventListener('click', () => {
+    const due = dueFlashcards();
+    if (!due.length) return;
+    studySession = { queue: shuffleCards(due), reviewed: 0 };
+    studyRevealed = false;
+    renderStudy();
+  });
+  $('#endStudy').addEventListener('click', () => {
+    studySession = null;
+    studyRevealed = false;
+    render();
+  });
+  $('#revealAnswer').addEventListener('click', () => {
+    studyRevealed = true;
+    renderStudy();
+  });
+  $('#studyGrades').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-grade]');
+    if (!button || !studySession || !studySession.queue.length) return;
+    const card = studySession.queue[0];
+    try {
+      await send('reviewFlashcard', { id: card.id, grade: button.dataset.grade });
+      studySession.queue.shift();
+      // "Again" means it comes back in this same session, not tomorrow.
+      if (button.dataset.grade === 'again') studySession.queue.push(card);
+      studySession.reviewed += 1;
+      studyRevealed = false;
+      await loadState();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  $('#cardsList').addEventListener('click', async (event) => {
+    const edit = event.target.closest('[data-edit-card]');
+    const remove = event.target.closest('[data-delete-card]');
+    if (!edit && !remove) return;
+    const id = edit ? edit.dataset.editCard : remove.dataset.deleteCard;
+    const card = (state.flashcards || []).find((entry) => entry.id === id);
+    if (!card) return;
+    try {
+      if (remove) {
+        if (!confirm(`Delete "${card.question}"?`)) return;
+        await send('deleteFlashcard', { id });
+        showToast('Card deleted.');
+      } else {
+        const question = prompt('Question', card.question);
+        if (question === null) return;
+        const answer = prompt('Answer', card.answer);
+        if (answer === null) return;
+        await send('saveFlashcard', { id, noteId: card.noteId, question, answer });
+        showToast('Card updated.');
+      }
+      await loadState();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+}
+
+function shuffleCards(cards) {
+  const copy = [...cards];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function bindNotes() {
   $('#newNoteButton').addEventListener('click', async () => {
     await flushPendingNoteSave();
@@ -3241,10 +3411,17 @@ function bindNotes() {
     await flushPendingNoteSave();
     if (!selectedNoteId) return showToast('Save the note before adding a flashcard.');
     if (!question || !answer) return showToast('Add both a question and an answer.');
-    const flashcards = [...state.flashcards, { id: createId('card'), noteId: selectedNoteId, question, answer, createdAt: Date.now() }];
+    // Through the worker, so a new card is normalised into the scheduling shape
+    // rather than arriving without it.
+    try {
+      await send('saveFlashcard', { noteId: selectedNoteId, question, answer });
+    } catch (error) {
+      return showToast(error.message);
+    }
     $('#flashcardQuestion').value = '';
     $('#flashcardAnswer').value = '';
-    await save({ flashcards });
+    await loadState();
+    showToast('Flashcard added.');
     showToast('Flashcard added.');
   });
   document.addEventListener('visibilitychange', () => {

@@ -24,6 +24,7 @@
         <button class="nav-button" data-view="projects">Projects <span id="projectCount" class="nav-count">0</span></button>
         <button class="nav-button" data-view="tasks">Tasks <span id="taskCount" class="nav-count">0</span></button>
         <button class="nav-button" data-view="notes">Notes <span id="noteCount" class="nav-count">0</span></button>
+        <button class="nav-button" data-view="cards">Cards <span id="cardCount" class="nav-count">0</span></button>
         <button class="nav-button" data-view="workspaces">Workspaces</button>
         <button class="nav-button" data-view="calendar">Calendar</button>
         <button class="nav-button" data-view="settings">Settings</button>
@@ -354,6 +355,42 @@
             <div id="taskList" class="task-list"></div>
           </section>
         </div>
+      </section>
+
+      <section id="cardsView" class="view" data-title="Flashcards">
+        <div class="cards-heading">
+          <div>
+            <span class="eyebrow">Spaced repetition</span>
+            <h2 id="cardsSummary">No cards yet.</h2>
+          </div>
+          <div class="button-row">
+            <button id="startStudy" class="button primary" type="button">Study due cards</button>
+          </div>
+        </div>
+
+        <section id="studyPanel" class="study-panel hidden">
+          <div class="study-progress"><span id="studyProgress"></span><button id="endStudy" class="text-button" type="button">End session</button></div>
+          <article class="study-card">
+            <p class="eyebrow">Question</p>
+            <p id="studyQuestion" class="study-question"></p>
+            <div id="studyAnswerWrap" class="study-answer hidden">
+              <p class="eyebrow">Answer</p>
+              <p id="studyAnswer"></p>
+            </div>
+          </article>
+          <div id="studyReveal" class="button-row">
+            <button id="revealAnswer" class="button primary" type="button">Show answer</button>
+          </div>
+          <div id="studyGrades" class="study-grades hidden">
+            <button class="button secondary" data-grade="again" type="button">Again<small></small></button>
+            <button class="button secondary" data-grade="hard" type="button">Hard<small></small></button>
+            <button class="button primary" data-grade="good" type="button">Good<small></small></button>
+            <button class="button secondary" data-grade="easy" type="button">Easy<small></small></button>
+          </div>
+          <p id="studyDone" class="study-done hidden"></p>
+        </section>
+
+        <div id="cardsList" class="cards-list"></div>
       </section>
 
       <section id="notesView" class="view" data-title="Notes">

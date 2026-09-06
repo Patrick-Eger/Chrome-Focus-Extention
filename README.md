@@ -93,7 +93,7 @@ counted toward a day.
 - One-way Obsidian export for projects, tasks, saved links, project notes, and a
   day note per planned day, with per-file conflict protection
 - One-way Notion mirror: projects as pages and tasks in a Notion database
-- Flashcards created from notes
+- Flashcards with a Cards view, a study session, and SM-2 spaced repetition
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
   reminders in Google and the browser, incremental background sync, and visible
   conflict/error states, with one unreadable calendar no longer stopping the rest
@@ -403,6 +403,30 @@ IndexedDB database rather than in `chrome.storage.local`, because a drawing grow
 without bound and that store is capped and sent to every page on load. Whiteboards
 are therefore local to the browser profile and are not part of the Obsidian export.
 
+## Flashcards
+
+Cards are still made in the box under a note. **Cards** in the sidebar is where they
+live afterwards: every card with its source note, its due date and how often it has
+been reviewed, editable and deletable, with the count in the sidebar showing how
+many are due rather than how many exist.
+
+**Study due cards** walks the due ones one at a time - question, then answer, then
+four grades. Each button says what it will cost: *Again* today, *Hard* barely
+further than last time, *Good* on the normal curve, *Easy* further still. Grading
+*Again* puts the card back at the end of the current session rather than only
+rescheduling it for tomorrow.
+
+Scheduling is SM-2 with four grades. A new card graded *Good* returns after a day,
+then six, then at its own ease factor, which rises with *Easy* and falls with
+*Hard* and *Again* between 1.3 and 3.0. Intervals are capped at ten years.
+Cards made before this existed come due immediately - nothing is known about them
+yet - and gain their scheduling fields on the first start-up after updating.
+
+The blocked-site flashcard gate now reviews cards that are actually due, and what
+you answer there counts toward the schedule instead of being discarded. With no
+cards at all it falls back to the math problem and explains why, rather than
+becoming a block nothing can open.
+
 ## Search
 
 **Search** sits in the top bar on every view and opens with `Command+K`
@@ -492,8 +516,6 @@ hand.
 - Google Calendar access requires the extension owner's OAuth client ID. Background
   sync occurs while Chrome is running; Chrome alarms cannot wake a sleeping computer.
 - Workspace restore opens saved tabs without closing existing tabs.
-- Flashcard review is intentionally lightweight and does not yet use spaced
-  repetition scheduling.
 - Online Moment backgrounds require an internet connection. Personal backgrounds
   remain available offline.
 - Obsidian recall scans up to 5,000 Markdown files per vault and requires a

@@ -85,14 +85,14 @@ function renderHardGate() {
     <p>This workspace uses a hard block. The site will remain unavailable until focus mode ends or you stop it from the dashboard.</p>`;
 }
 
-function renderMathGate() {
+function renderMathGate(target = '#gateContent') {
   const left = randomBetween(12, 39);
   const right = randomBetween(7, 28);
   const multiplier = randomBetween(2, 6);
   mathAnswer = left + right * multiplier;
-  $('#gateContent').innerHTML = `
-    <h2>Solve one problem</h2>
-    <p>Pause, solve the problem, then decide whether this site is still needed.</p>
+  const standalone = target === '#gateContent';
+  $(target).innerHTML = `
+    ${standalone ? '<h2>Solve one problem</h2><p>Pause, solve the problem, then decide whether this site is still needed.</p>' : ''}
     <form id="mathForm" class="gate-form">
       <input id="mathInput" type="number" inputmode="numeric" placeholder="${left} + ${right} × ${multiplier} =" aria-label="Answer" required autofocus>
       <button class="button primary" type="submit">Check and open</button>
@@ -123,13 +123,25 @@ function renderIntentGate() {
 }
 
 function renderFlashcardGate() {
-  if (state.flashcards.length < 3) {
+  const cards = state.flashcards || [];
+  if (!cards.length) {
+    // With no cards this gate used to become an unbreakable block, which is not
+    // what any of the five gate settings promise. Fall back to the math problem
+    // and say why.
     $('#gateContent').innerHTML = `
-      <h2>Three flashcards required</h2>
-      <p>You have ${state.flashcards.length} saved. Create at least three flashcards from your notes before using this gate.</p>`;
+      <h2>No flashcards yet</h2>
+      <p>This gate reviews cards from your notes, and you have none. Solve a problem instead, then make some cards from the dashboard.</p>
+      <div id="fallbackGate"></div>`;
+    renderMathGate('#fallbackGate');
     return;
   }
-  flashcardQueue = shuffle([...state.flashcards]).slice(0, 3);
+  const today = new Date();
+  const todayKey = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+  // Cards that are actually due first, so the gate does real work rather than
+  // re-showing whatever it happens to pick.
+  const due = cards.filter((card) => (card.dueDate || todayKey) <= todayKey);
+  const pool = due.length ? due : cards;
+  flashcardQueue = shuffle([...pool]).slice(0, 3);
   flashcardIndex = 0;
   reviewedCards = 0;
   showFlashcard(false);
@@ -137,17 +149,36 @@ function renderFlashcardGate() {
 
 function showFlashcard(revealed) {
   const card = flashcardQueue[flashcardIndex];
+  const total = flashcardQueue.length;
   $('#gateContent').innerHTML = `
-    <h2>Review three flashcards</h2>
-    <p class="flashcard-progress">Card ${flashcardIndex + 1} of 3</p>
+    <h2>Review ${total === 1 ? 'a flashcard' : `${total} flashcards`}</h2>
+    <p class="flashcard-progress">Card ${flashcardIndex + 1} of ${total}</p>
     <div class="flashcard">
       <p class="question">${escapeHtml(card.question)}</p>
-      ${revealed ? `<p class="answer">${escapeHtml(card.answer)}</p><button id="nextCard" class="button primary">I reviewed this</button>` : '<button id="revealCard" class="button secondary">Reveal answer</button>'}
+      ${revealed
+        ? `<p class="answer">${escapeHtml(card.answer)}</p>
+           <div class="flashcard-grades">
+             ${['again', 'hard', 'good', 'easy'].map((grade) =>
+               `<button class="button ${grade === 'good' ? 'primary' : 'secondary'}" data-grade="${grade}" type="button">${grade[0].toUpperCase()}${grade.slice(1)}</button>`).join('')}
+           </div>`
+        : '<button id="revealCard" class="button secondary">Reveal answer</button>'}
     </div>`;
-  if (!revealed) $('#revealCard').addEventListener('click', () => showFlashcard(true));
-  else $('#nextCard').addEventListener('click', async () => {
+  if (!revealed) {
+    $('#revealCard').addEventListener('click', () => showFlashcard(true));
+    return;
+  }
+  document.querySelector('.flashcard-grades').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-grade]');
+    if (!button) return;
+    try {
+      // Graded through the worker: the answer counts toward the schedule instead
+      // of being thrown away when this page closes.
+      await send('reviewFlashcard', { id: card.id, grade: button.dataset.grade });
+    } catch (error) {
+      return showError(error.message);
+    }
     reviewedCards += 1;
-    if (reviewedCards >= 3) return unlock();
+    if (reviewedCards >= total) return unlock();
     flashcardIndex += 1;
     showFlashcard(false);
   });

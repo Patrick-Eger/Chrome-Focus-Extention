@@ -1673,3 +1673,24 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 
 .work-block-repeat-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .timeline-entry.from-routine { border-left-style: double; }
+
+/* Flashcards */
+.cards-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+.cards-list { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--line-dark); background: var(--line-dark); }
+.card-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 16px; background: var(--panel-bg); }
+.card-row.due { box-shadow: inset 3px 0 0 var(--accent); }
+.card-row-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.card-row-main strong { font-size: 14px; }
+.card-row-main span { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.card-row-main small { color: var(--muted); font-size: 11px; }
+
+.study-panel { margin-bottom: 24px; padding: 20px; border: 1px solid var(--line-dark); background: var(--panel-bg); }
+.study-progress { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; color: var(--muted); font-size: 12px; }
+.study-card { padding: 22px; border: 1px solid var(--line); background: var(--surface); }
+.study-question { margin: 4px 0 0; font-size: 22px; line-height: 1.3; }
+.study-answer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.study-answer p:last-child { margin: 4px 0 0; font-size: 17px; line-height: 1.45; }
+.study-grades { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.study-grades .button { flex-direction: column; min-height: 52px; line-height: 1.2; }
+.study-grades small { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; opacity: .75; }
+.study-done { margin: 16px 0 0; color: var(--muted); }

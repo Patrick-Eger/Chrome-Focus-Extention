@@ -1,4 +1,4 @@
-const STORAGE_VERSION = 16;
+const STORAGE_VERSION = 17;
 const BLOCK_RULE_IDS = [1, 2];
 const FOCUS_ALARM = 'focus-session-end';
 const CALENDAR_SYNC_ALARM = 'calendar-background-sync';
@@ -323,7 +323,7 @@ function mergeDefaults(current) {
     inboxItems: Array.isArray(current.inboxItems) ? current.inboxItems.map(normalizeInboxItem) : [],
     tasks: Array.isArray(current.tasks) ? current.tasks.map(normalizeTask) : [],
     notes: Array.isArray(current.notes) ? current.notes.map(normalizeNote) : [],
-    flashcards: Array.isArray(current.flashcards) ? current.flashcards : [],
+    flashcards: Array.isArray(current.flashcards) ? current.flashcards.map(normalizeFlashcard) : [],
     dailyPlans: normalizeDailyPlans(current.dailyPlans, current.activeWorkspaceId || DEFAULTS.activeWorkspaceId),
     reminders: Array.isArray(current.reminders)
       ? current.reminders.map(normalizeStandaloneReminder)
@@ -477,6 +477,12 @@ async function handleMessage(message, sender) {
       return deleteRecurringSeries(message.id, Boolean(message.keepPlanned));
     case 'skipSeriesOccurrence':
       return skipSeriesOccurrence(message.seriesId, message.dateKey);
+    case 'reviewFlashcard':
+      return reviewFlashcard(message.id, message.grade);
+    case 'saveFlashcard':
+      return saveFlashcard(message.card);
+    case 'deleteFlashcard':
+      return deleteFlashcard(message.id);
     case 'allowDomain':
       return allowDomain(message.domain);
     case 'completeTask':
@@ -2212,6 +2218,54 @@ async function skipSeriesOccurrence(seriesId, dateKeyValue) {
 // The blocked page reads state once on load and has no storage listener, so it
 // must not write the workspace array itself - it would overwrite anything changed
 // since. The worker owns the write and touches only the one workspace.
+async function reviewFlashcard(cardId, grade) {
+  await ensureInitialized();
+  const id = cleanText(cardId, 120);
+  if (!FLASHCARD_GRADES.includes(grade)) throw new Error('That is not a review grade.');
+  let reviewed = null;
+  await runStorageUpdate(['flashcards'], (current) => {
+    const cards = current.flashcards || [];
+    if (!cards.some((card) => card.id === id)) return {};
+    return {
+      flashcards: cards.map((card) => {
+        if (card.id !== id) return card;
+        reviewed = scheduleFlashcard(normalizeFlashcard(card), grade);
+        return reviewed;
+      })
+    };
+  });
+  if (!reviewed) throw new Error('That card no longer exists.');
+  return { card: reviewed };
+}
+
+async function saveFlashcard(input) {
+  await ensureInitialized();
+  const card = normalizeFlashcard({ ...input, id: input && input.id || createBackgroundId('card') });
+  if (!card.question || !card.answer) throw new Error('A card needs both a question and an answer.');
+  await runStorageUpdate(['flashcards'], (current) => {
+    const cards = current.flashcards || [];
+    const index = cards.findIndex((entry) => entry.id === card.id);
+    return {
+      flashcards: index >= 0
+        // An edit must not reset what the card has already earned.
+        ? cards.map((entry) => (entry.id === card.id
+          ? { ...entry, question: card.question, answer: card.answer, updatedAt: Date.now() }
+          : entry))
+        : [...cards, card]
+    };
+  });
+  return { card };
+}
+
+async function deleteFlashcard(cardId) {
+  await ensureInitialized();
+  const id = cleanText(cardId, 120);
+  await runStorageUpdate(['flashcards'], (current) => ({
+    flashcards: (current.flashcards || []).filter((card) => card.id !== id)
+  }));
+  return {};
+}
+
 async function allowDomain(input) {
   await ensureInitialized();
   const domain = cleanDomain(input);
@@ -2519,6 +2573,79 @@ function normalizeSettings(settings) {
     momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
     dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
+  };
+}
+
+const FLASHCARD_GRADES = ['again', 'hard', 'good', 'easy'];
+const FLASHCARD_MIN_EASE = 1.3;
+const FLASHCARD_MAX_EASE = 3;
+// Ten years. Without a cap the interval compounds past what a Date can hold, and
+// setDate() then yields an invalid date that localDateKey turns into "NaN-NaN-NaN".
+const FLASHCARD_MAX_INTERVAL = 3650;
+
+function normalizeFlashcard(card, cardIndex = 0) {
+  const source = card && typeof card === 'object' ? card : {};
+  const createdAt = Number(source.createdAt) || Date.now();
+  return {
+    id: cleanText(source.id, 120) || `card-${cardIndex}`,
+    noteId: cleanText(source.noteId, 120) || null,
+    question: cleanLongText(source.question, 2000),
+    answer: cleanLongText(source.answer, 4000),
+    // Cards written before scheduling existed come due immediately, which is the
+    // honest default: nothing is known about them yet.
+    dueDate: normalizeDate(source.dueDate) || localDateKey(new Date(createdAt)),
+    interval: clampNumber(source.interval, 0, 3650, 0),
+    easeFactor: clampNumber(source.easeFactor, FLASHCARD_MIN_EASE, FLASHCARD_MAX_EASE, 2.5),
+    repetitions: clampNumber(source.repetitions, 0, 10000, 0),
+    lapses: clampNumber(source.lapses, 0, 10000, 0),
+    lastReviewedAt: Number(source.lastReviewedAt) || null,
+    createdAt,
+    updatedAt: Number(source.updatedAt) || createdAt
+  };
+}
+
+// SM-2, trimmed to four buttons. Kept in the worker so the dashboard and the
+// blocked-site gate schedule identically and neither writes the array itself.
+function scheduleFlashcard(card, grade, now = new Date()) {
+  const ease = card.easeFactor;
+  let nextEase = ease;
+  let interval = card.interval;
+  let repetitions = card.repetitions;
+  let lapses = card.lapses;
+
+  if (grade === 'again') {
+    repetitions = 0;
+    interval = 0;
+    lapses += 1;
+    nextEase = ease - 0.2;
+  } else if (grade === 'hard') {
+    repetitions += 1;
+    interval = interval ? Math.max(1, Math.round(interval * 1.2)) : 1;
+    nextEase = ease - 0.15;
+  } else {
+    repetitions += 1;
+    if (repetitions === 1) interval = 1;
+    else if (repetitions === 2) interval = 6;
+    else interval = Math.max(1, Math.round(interval * ease));
+    if (grade === 'easy') {
+      interval = Math.max(interval + 1, Math.round(interval * 1.3));
+      nextEase = ease + 0.15;
+    }
+  }
+
+  interval = Math.min(interval, FLASHCARD_MAX_INTERVAL);
+  const due = new Date(now);
+  due.setDate(due.getDate() + interval);
+  return {
+    ...card,
+    interval,
+    repetitions,
+    lapses,
+    easeFactor: clampNumber(nextEase, FLASHCARD_MIN_EASE, FLASHCARD_MAX_EASE, 2.5),
+    // interval 0 means "again today", not "tomorrow".
+    dueDate: localDateKey(due),
+    lastReviewedAt: now.getTime(),
+    updatedAt: now.getTime()
   };
 }
 
