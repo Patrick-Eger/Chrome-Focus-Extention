@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Focus Desk",
-  "version": "5.15.0",
+  "version": "5.16.0",
   "minimum_chrome_version": "116",
   "description": "Plan projects and workdays, manage workspaces, capture notes, and protect focus from every new tab.",
   "permissions": [
@@ -19,7 +19,8 @@
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "https://api.notion.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -52,8 +53,13 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["blocked.html", "blocked.css"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "blocked.html",
+        "blocked.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

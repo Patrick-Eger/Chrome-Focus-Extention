@@ -13,6 +13,7 @@ const CONTEXT_CAPTURE_LINK = 'focus-desk-capture-link';
 const CONTEXT_CAPTURE_TASK = 'focus-desk-capture-task';
 const CONTEXT_SAVE_PROJECT = 'focus-desk-save-project';
 const CONTEXT_OPEN_PANEL = 'focus-desk-open-panel';
+const TASK_STATUSES = ['backlog', 'planned', 'in-progress', 'waiting', 'done'];
 const DASHBOARD_WIDGET_IDS = ['focus', 'dayPlan', 'tasks', 'upcoming', 'recall'];
 const DASHBOARD_LANES = ['full', 'main', 'side'];
 // transparency: null follows the dashboard-wide slider, a number overrides it.
@@ -100,6 +101,9 @@ const DEFAULTS = {
     obsidianRecallTag: 'recall',
     obsidianExportFolder: 'Focus Desk',
     obsidianIncludeArchivedProjects: false,
+    notionToken: '',
+    notionParentPageId: '',
+    notionIncludeArchived: false,
     dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
     dashboardShowTaskBank: true,
     dashboardBackground: 'none',
@@ -125,6 +129,7 @@ const DEFAULTS = {
   calendarConnected: false,
   calendarAccount: null,
   obsidianSyncRecords: {},
+  notionSync: { taskDatabaseId: null, projects: {}, tasks: {}, notes: {}, lastSyncedAt: null, workspaceName: '' },
   migratedLegacyData: false
 };
 
@@ -336,6 +341,7 @@ function mergeDefaults(current) {
     obsidianSyncRecords: current.obsidianSyncRecords && typeof current.obsidianSyncRecords === 'object'
       ? current.obsidianSyncRecords
       : {},
+    notionSync: normalizeNotionSync(current.notionSync),
     calendarAccount: current.calendarAccount && typeof current.calendarAccount === 'object'
       ? {
           email: cleanText(current.calendarAccount.email, 320),
@@ -449,6 +455,12 @@ async function handleMessage(message, sender) {
       return completeWorkBlock(message);
     case 'rolloverWorkBlock':
       return rolloverWorkBlock(message);
+    case 'connectNotion':
+      return connectNotion(message);
+    case 'disconnectNotion':
+      return disconnectNotion();
+    case 'syncNotion':
+      return syncNotion(message);
     case 'exportData':
       return exportData();
     case 'importData':
@@ -1753,6 +1765,8 @@ async function reconcileDueStandaloneReminders() {
 // Credentials-adjacent and re-derivable on the next sync, so they stay out of a
 // file the user may well hand to someone else.
 const EXPORT_EXCLUDED_KEYS = ['calendarSyncTokens', 'calendarAccount', 'calendarConnected'];
+// Inside settings rather than a top-level key, so it needs stripping separately.
+const EXPORT_EXCLUDED_SETTINGS = ['notionToken'];
 
 async function exportData() {
   await ensureInitialized();
@@ -1760,6 +1774,10 @@ async function exportData() {
   const data = {};
   for (const [key, value] of Object.entries(stored)) {
     if (!EXPORT_EXCLUDED_KEYS.includes(key)) data[key] = value;
+  }
+  if (data.settings) {
+    data.settings = { ...data.settings };
+    for (const key of EXPORT_EXCLUDED_SETTINGS) delete data.settings[key];
   }
   return {
     export: {
@@ -1812,7 +1830,281 @@ async function importData(payload) {
   };
 }
 
+const NOTION_VERSION = '2022-06-28';
+const NOTION_TEXT_LIMIT = 1900;
+
+// Notion sends no CORS headers, so these calls only work from the worker, which
+// has host_permissions. That also keeps the token out of every page.
+async function notionRequest(path, { method = 'GET', body, token } = {}) {
+  const response = await fetch(`https://api.notion.com/v1${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Notion-Version': NOTION_VERSION,
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const text = await response.text();
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = null; }
+  if (!response.ok) {
+    const error = new Error((payload && payload.message) || `Notion refused the request (${response.status}).`);
+    error.status = response.status;
+    error.code = payload && payload.code;
+    throw error;
+  }
+  return payload;
+}
+
+function notionText(value) {
+  return [{ type: 'text', text: { content: cleanText(value, NOTION_TEXT_LIMIT) || '' } }];
+}
+
+function notionParagraph(value) {
+  return { object: 'block', type: 'paragraph', paragraph: { rich_text: notionText(value) } };
+}
+
+function notionHeading(value) {
+  return { object: 'block', type: 'heading_2', heading_2: { rich_text: notionText(value) } };
+}
+
+// Notion accepts at most 100 blocks per call and 2000 characters per text run.
+function notionBlocksFromText(value) {
+  const text = String(value || '').trim();
+  if (!text) return [];
+  const chunks = [];
+  for (const paragraph of text.split(/\n{2,}/)) {
+    for (let i = 0; i < paragraph.length; i += NOTION_TEXT_LIMIT) {
+      chunks.push(paragraph.slice(i, i + NOTION_TEXT_LIMIT));
+    }
+  }
+  return chunks.slice(0, 90).map(notionParagraph);
+}
+
+async function connectNotion(message) {
+  const token = cleanText(message.token, 200);
+  const parentPageId = cleanText(message.parentPageId, 100).replace(/-/g, '');
+  if (!token) throw new Error('Paste the internal integration token.');
+  if (!/^[0-9a-f]{32}$/i.test(parentPageId)) {
+    throw new Error('That does not look like a Notion page ID. Copy the page link and take the 32-character id from it.');
+  }
+
+  const page = await notionRequest(`/pages/${parentPageId}`, { token });
+  const bot = await notionRequest('/users/me', { token });
+  const workspaceName = (bot && bot.bot && bot.bot.workspace_name) || '';
+
+  const { settings = DEFAULTS.settings } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({
+    settings: { ...settings, notionToken: token, notionParentPageId: parentPageId },
+    notionSync: normalizeNotionSync({ workspaceName })
+  });
+  return { connected: true, workspaceName, parentTitle: notionPageTitle(page) };
+}
+
+function notionPageTitle(page) {
+  const properties = (page && page.properties) || {};
+  for (const value of Object.values(properties)) {
+    if (value && value.type === 'title' && Array.isArray(value.title) && value.title.length) {
+      return value.title.map((part) => part.plain_text).join('');
+    }
+  }
+  return 'Notion page';
+}
+
+async function disconnectNotion() {
+  const { settings = DEFAULTS.settings } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({
+    settings: { ...settings, notionToken: '', notionParentPageId: '' },
+    notionSync: normalizeNotionSync(null)
+  });
+  return { connected: false };
+}
+
+async function ensureNotionTaskDatabase(token, parentPageId, sync) {
+  if (sync.taskDatabaseId) {
+    try {
+      const existing = await notionRequest(`/databases/${sync.taskDatabaseId}`, { token });
+      if (existing && !existing.archived) return sync.taskDatabaseId;
+    } catch (error) {
+      // 404 means it was deleted in Notion; anything else is a real failure.
+      if (error.status !== 404) throw error;
+    }
+  }
+  const created = await notionRequest('/databases', {
+    method: 'POST',
+    token,
+    body: {
+      parent: { type: 'page_id', page_id: parentPageId },
+      title: notionText('Focus Desk tasks'),
+      properties: {
+        Name: { title: {} },
+        Status: { select: { options: TASK_STATUSES.map((name) => ({ name })) } },
+        Priority: { select: { options: [{ name: 'low' }, { name: 'medium' }, { name: 'high' }] } },
+        Done: { checkbox: {} },
+        Due: { date: {} },
+        Planned: { date: {} },
+        Project: { rich_text: {} },
+        Workspace: { rich_text: {} },
+        'Focus Desk ID': { rich_text: {} }
+      }
+    }
+  });
+  return created.id;
+}
+
+function notionTaskProperties(task, projectName, workspaceName) {
+  return {
+    Name: { title: notionText(task.title) },
+    Status: { select: { name: task.status || 'backlog' } },
+    Priority: { select: { name: task.priority || 'medium' } },
+    Done: { checkbox: Boolean(task.completed) },
+    Due: { date: task.dueDate ? { start: task.dueDate } : null },
+    Planned: { date: task.plannedDate ? { start: task.plannedDate } : null },
+    Project: { rich_text: notionText(projectName) },
+    Workspace: { rich_text: notionText(workspaceName) },
+    'Focus Desk ID': { rich_text: notionText(task.id) }
+  };
+}
+
+function notionProjectBlocks(project, tasks, notes) {
+  const blocks = [];
+  if (project.outcome) {
+    blocks.push(notionHeading('Outcome'), ...notionBlocksFromText(project.outcome));
+  }
+  if (project.description) {
+    blocks.push(notionHeading('Context'), ...notionBlocksFromText(project.description));
+  }
+  const links = Array.isArray(project.links) ? project.links : [];
+  if (links.length) {
+    blocks.push(notionHeading('Links'));
+    for (const link of links.slice(0, 50)) {
+      blocks.push({
+        object: 'block',
+        type: 'bookmark',
+        bookmark: { url: link.url }
+      });
+    }
+  }
+  if (tasks.length) {
+    blocks.push(notionHeading('Tasks'));
+    for (const task of tasks.slice(0, 90)) {
+      blocks.push({
+        object: 'block',
+        type: 'to_do',
+        to_do: { rich_text: notionText(task.title), checked: Boolean(task.completed) }
+      });
+    }
+  }
+  if (notes.length) {
+    blocks.push(notionHeading('Notes'));
+    for (const note of notes.slice(0, 50)) {
+      blocks.push({
+        object: 'block',
+        type: 'bulleted_list_item',
+        bulleted_list_item: { rich_text: notionText(note.title || 'Untitled note') }
+      });
+    }
+  }
+  return blocks.slice(0, 100);
+}
+
+// Notion has no upsert. Replacing the children is the only way to keep a page in
+// step with the source without diffing every block.
+async function replaceNotionPageChildren(pageId, blocks, token) {
+  const existing = await notionRequest(`/blocks/${pageId}/children?page_size=100`, { token });
+  for (const block of (existing && existing.results) || []) {
+    await notionRequest(`/blocks/${block.id}`, { method: 'DELETE', token });
+  }
+  if (blocks.length) {
+    await notionRequest(`/blocks/${pageId}/children`, { method: 'PATCH', token, body: { children: blocks } });
+  }
+}
+
+async function notionPageAlive(pageId, token) {
+  try {
+    const page = await notionRequest(`/pages/${pageId}`, { token });
+    return page && !page.archived;
+  } catch (error) {
+    if (error.status === 404) return false;
+    throw error;
+  }
+}
+
+async function syncNotion(message = {}) {
+  await ensureInitialized();
+  const stored = await chrome.storage.local.get(['settings', 'notionSync', 'projects', 'tasks', 'notes', 'workspaces']);
+  const settings = stored.settings || DEFAULTS.settings;
+  const token = settings.notionToken;
+  const parentPageId = settings.notionParentPageId;
+  if (!token || !parentPageId) throw new Error('Connect Notion in Settings first.');
+
+  const sync = normalizeNotionSync(stored.notionSync);
+  const includeArchived = Boolean(message.includeArchived);
+  const projects = (stored.projects || []).filter((project) => includeArchived || !project.archived);
+  const allTasks = stored.tasks || [];
+  const allNotes = stored.notes || [];
+  const workspaceName = (id) => {
+    const workspace = (stored.workspaces || []).find((item) => item.id === id);
+    return workspace ? workspace.name : '';
+  };
+
+  const databaseId = await ensureNotionTaskDatabase(token, parentPageId, sync);
+  sync.taskDatabaseId = databaseId;
+
+  let projectCount = 0;
+  let taskCount = 0;
+
+  for (const project of projects) {
+    const projectTasks = allTasks.filter((task) => task.projectId === project.id);
+    const projectNotes = allNotes.filter((note) => note.projectId === project.id);
+    const properties = { title: { title: notionText(project.name) } };
+    const blocks = notionProjectBlocks(project, projectTasks, projectNotes);
+
+    let pageId = sync.projects[project.id];
+    if (pageId && !await notionPageAlive(pageId, token)) pageId = null;
+    if (pageId) {
+      await notionRequest(`/pages/${pageId}`, { method: 'PATCH', token, body: { properties } });
+      await replaceNotionPageChildren(pageId, blocks, token);
+    } else {
+      const created = await notionRequest('/pages', {
+        method: 'POST',
+        token,
+        body: { parent: { type: 'page_id', page_id: parentPageId }, properties, children: blocks }
+      });
+      pageId = created.id;
+    }
+    sync.projects[project.id] = pageId;
+    projectCount += 1;
+  }
+
+  for (const task of allTasks) {
+    const project = (stored.projects || []).find((item) => item.id === task.projectId);
+    if (!includeArchived && project && project.archived) continue;
+    const properties = notionTaskProperties(task, project ? project.name : '', workspaceName(task.workspaceId));
+    let pageId = sync.tasks[task.id];
+    if (pageId && !await notionPageAlive(pageId, token)) pageId = null;
+    if (pageId) {
+      await notionRequest(`/pages/${pageId}`, { method: 'PATCH', token, body: { properties } });
+    } else {
+      const created = await notionRequest('/pages', {
+        method: 'POST',
+        token,
+        body: { parent: { type: 'database_id', database_id: databaseId }, properties }
+      });
+      pageId = created.id;
+    }
+    sync.tasks[task.id] = pageId;
+    taskCount += 1;
+  }
+
+  sync.lastSyncedAt = Date.now();
+  await chrome.storage.local.set({ notionSync: sync });
+  return { projectCount, taskCount, databaseId, lastSyncedAt: sync.lastSyncedAt };
+}
+
 async function completeTask(taskId) {
+
   await ensureInitialized();
   const id = cleanText(taskId, 200);
   if (!id) throw new Error('Choose the task you completed.');
@@ -2083,10 +2375,26 @@ function normalizeSettings(settings) {
     dashboardBackground: settings.dashboardBackground === 'library' ? 'library' : 'none',
     focusBlocksSites: settings.focusBlocksSites !== false,
     celebrateTasks: settings.celebrateTasks !== false,
+    notionToken: cleanText(settings.notionToken, 200),
+    notionParentPageId: cleanText(settings.notionParentPageId, 100),
+    notionIncludeArchived: Boolean(settings.notionIncludeArchived),
     celebrateTasksSound: settings.celebrateTasksSound !== false,
     momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
     dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
+  };
+}
+
+function normalizeNotionSync(value) {
+  const sync = value && typeof value === 'object' ? value : {};
+  const map = (input) => (input && typeof input === 'object' && !Array.isArray(input) ? { ...input } : {});
+  return {
+    taskDatabaseId: cleanText(sync.taskDatabaseId, 100) || null,
+    projects: map(sync.projects),
+    tasks: map(sync.tasks),
+    notes: map(sync.notes),
+    workspaceName: cleanText(sync.workspaceName, 200),
+    lastSyncedAt: Number(sync.lastSyncedAt) || null
   };
 }
 
@@ -2286,7 +2594,7 @@ function normalizeProjectGroup(group, groupIndex) {
 function normalizeTask(task, taskIndex) {
   const completed = Boolean(task && task.completed);
   const fallbackStatus = completed ? 'done' : task && task.plannedDate ? 'planned' : 'backlog';
-  const status = ['backlog', 'planned', 'in-progress', 'waiting', 'done'].includes(task && task.status)
+  const status = TASK_STATUSES.includes(task && task.status)
     ? task.status
     : fallbackStatus;
   const priority = ['low', 'medium', 'high'].includes(task && task.priority)

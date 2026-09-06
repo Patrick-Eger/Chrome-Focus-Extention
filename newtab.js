@@ -43,6 +43,7 @@ let pendingWidgetFocus = null;
 let dashboardObjectUrl = null;
 let dashboardBackgroundLoaded = false;
 let settingsFormDirty = false;
+let notionSyncInProgress = false;
 let searchOpen = false;
 let searchResults = [];
 let searchActiveIndex = 0;
@@ -4557,6 +4558,7 @@ async function removeObsidianVaultHandle() {
 function bindSettings() {
   bindDashboardLayoutSettings();
   bindDataSettings();
+  bindNotionSettings();
   $('#settingsView').addEventListener('input', markSettingsFormDirty);
   $('#settingsView').addEventListener('change', markSettingsFormDirty);
   $('#momentOverlay').addEventListener('input', (event) => {
@@ -4677,6 +4679,7 @@ function renderSettings() {
   toggleCustomQuoteFields();
   updateMomentImageStatus();
   renderObsidianSettings();
+  renderNotionSettings();
 }
 
 function markSettingsFormDirty(event) {
@@ -4685,6 +4688,8 @@ function markSettingsFormDirty(event) {
   if (event.target.closest('#dashboardWidgetList, #dashboardBackgroundOptions')) return;
   if (event.target.name === 'dashboardBackground') return;
   if (event.target.id === 'focusBlocksSites') return;
+  // The Notion section owns its own saving; marking it would freeze the rest.
+  if (event.target.closest('.notion-settings, .data-settings')) return;
   settingsFormDirty = true;
 }
 
@@ -6756,6 +6761,91 @@ async function importEverything(file) {
   } catch (error) {
     setDataStatus(error.message, true);
   }
+}
+
+// Accepts a full Notion URL as well as a bare id: the id is the last 32 hex
+// characters of the link, which is what people actually have on the clipboard.
+function notionPageIdFromInput(value) {
+  const match = String(value || '').replace(/-/g, '').match(/([0-9a-f]{32})(?!.*[0-9a-f]{32})/i);
+  return match ? match[1] : '';
+}
+
+function setNotionMessage(message, isError = false) {
+  const element = $('#notionSyncMessage');
+  element.textContent = message;
+  element.classList.toggle('error', Boolean(isError));
+}
+
+function renderNotionSettings() {
+  const connected = Boolean(state.settings.notionToken && state.settings.notionParentPageId);
+  const sync = state.notionSync || {};
+  $('#settingsNotionState').textContent = connected ? 'Connected' : 'Not connected';
+  $('#settingsNotionState').dataset.state = connected ? 'connected' : 'idle';
+  $('#settingsNotionWorkspace').textContent = sync.workspaceName || 'Notion workspace';
+  $('#settingsNotionDetail').textContent = connected
+    ? sync.lastSyncedAt
+      ? `Last synced ${formatSaveTime(sync.lastSyncedAt)} · ${Object.keys(sync.projects || {}).length} projects, ${Object.keys(sync.tasks || {}).length} tasks`
+      : 'Connected. Nothing synced yet.'
+    : 'No workspace connected.';
+  $('#connectNotion').classList.toggle('hidden', connected);
+  $('#disconnectNotion').classList.toggle('hidden', !connected);
+  $('#notionSetup').classList.toggle('hidden', connected);
+  $('#syncNotion').disabled = !connected || notionSyncInProgress;
+  $('#notionIncludeArchived').checked = Boolean(state.settings.notionIncludeArchived);
+}
+
+function bindNotionSettings() {
+  $('#connectNotion').addEventListener('click', async () => {
+    const token = $('#notionToken').value.trim();
+    const parentPageId = notionPageIdFromInput($('#notionParentPage').value);
+    if (!token) return setNotionMessage('Paste the integration token first.', true);
+    if (!parentPageId) return setNotionMessage('That link contains no Notion page ID.', true);
+    $('#connectNotion').disabled = true;
+    setNotionMessage('Checking...');
+    try {
+      const result = await send('connectNotion', { token, parentPageId });
+      // Never leave a token sitting in a form field once it is stored.
+      $('#notionToken').value = '';
+      await loadState();
+      setNotionMessage(`Connected to ${result.workspaceName || 'Notion'} under "${result.parentTitle}".`);
+    } catch (error) {
+      setNotionMessage(error.message, true);
+    } finally {
+      $('#connectNotion').disabled = false;
+    }
+  });
+
+  $('#disconnectNotion').addEventListener('click', async () => {
+    if (!confirm('Disconnect Notion? Pages already written stay where they are.')) return;
+    try {
+      await send('disconnectNotion');
+      await loadState();
+      setNotionMessage('Disconnected.');
+    } catch (error) {
+      setNotionMessage(error.message, true);
+    }
+  });
+
+  $('#notionIncludeArchived').addEventListener('change', async (event) => {
+    await save({ settings: { ...state.settings, notionIncludeArchived: event.target.checked } });
+  });
+
+  $('#syncNotion').addEventListener('click', async () => {
+    if (notionSyncInProgress) return;
+    notionSyncInProgress = true;
+    renderNotionSettings();
+    setNotionMessage('Syncing...');
+    try {
+      const result = await send('syncNotion', { includeArchived: Boolean(state.settings.notionIncludeArchived) });
+      await loadState();
+      setNotionMessage(`Synced ${result.projectCount} project${result.projectCount === 1 ? '' : 's'} and ${result.taskCount} task${result.taskCount === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setNotionMessage(error.message, true);
+    } finally {
+      notionSyncInProgress = false;
+      renderNotionSettings();
+    }
+  });
 }
 
 function bindDataSettings() {

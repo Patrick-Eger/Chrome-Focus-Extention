@@ -65,6 +65,7 @@ that block every website outside the active workspace allowlist.
 - Local Obsidian vault recall with configurable inline or frontmatter tags
 - One-way Obsidian export for projects, tasks, saved links, project notes, and a
   day note per planned day, with per-file conflict protection
+- One-way Notion mirror: projects as pages and tasks in a Notion database
 - Flashcards created from notes
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
   reminders in Google and the browser, incremental background sync, and visible
@@ -195,6 +196,32 @@ are written by **Sync all projects**, not by a single project's sync.
 This is intentionally a one-way export from Focus Desk. Before every write, Focus Desk compares each existing file with
 the last exported version. Files changed in Obsidian are left untouched and the
 project is marked for review; replacing them requires explicit confirmation.
+
+## Connect Notion
+
+Focus Desk writes into Notion; Notion never writes back.
+
+1. Create an **internal integration** at `notion.so/my-integrations` and copy its
+   token.
+2. Open the Notion page everything should live under and share it with that
+   integration - an integration can only touch pages explicitly shared with it.
+3. In **Settings > Notion**, paste the token and the page link. The page ID is the
+   32-character id in the link; pasting the whole URL is fine.
+4. Use **Sync to Notion**.
+
+The first sync creates a **Focus Desk tasks** database under that page with Name,
+Status, Priority, Done, Due, Planned, Project, Workspace and a Focus Desk ID
+column, plus one page per project holding its outcome, context, saved links, tasks
+as checkboxes, and a list of its notes. Later syncs update those pages rather than
+adding new ones. If a page is deleted in Notion, the next sync recreates it.
+Archived projects are skipped unless you ask for them.
+
+The token is stored in this Chrome profile and is deliberately left out of the
+backup file, the same as the Google sync tokens. After importing a backup on
+another machine, paste it once more.
+
+All Notion calls run from the extension's service worker: Notion's API sends no
+CORS headers, so a page cannot call it, and this keeps the token out of every tab.
 
 ## Important behavior
 

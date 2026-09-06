@@ -500,6 +500,42 @@
             <p id="obsidianSyncMessage" class="form-status" role="status"></p>
             <p id="settingsObsidianMessage" class="form-status" role="status"></p>
           </section>
+          <section class="settings-section account-settings notion-settings">
+            <div class="account-settings-heading">
+              <div><span class="eyebrow">Connected services</span><h2>Notion</h2></div>
+              <span id="settingsNotionState" class="connection-state">Not connected</span>
+            </div>
+            <p>Mirror projects and tasks into a Notion page. One-way: Focus Desk writes, Notion never writes back.</p>
+            <div class="google-account-row">
+              <span class="google-account-mark" aria-hidden="true">N</span>
+              <div class="google-account-copy">
+                <strong id="settingsNotionWorkspace">Notion workspace</strong>
+                <span id="settingsNotionDetail">No workspace connected.</span>
+              </div>
+              <div class="button-row">
+                <button id="disconnectNotion" class="button secondary hidden" type="button">Disconnect</button>
+                <button id="connectNotion" class="button primary" type="button">Connect Notion</button>
+              </div>
+            </div>
+            <div id="notionSetup" class="notion-setup">
+              <ol class="notion-steps">
+                <li>Create an internal integration at <code>notion.so/my-integrations</code> and copy its token.</li>
+                <li>Open the Notion page everything should live under, and share it with that integration.</li>
+                <li>Paste the token and the page link below.</li>
+              </ol>
+              <label class="field-label" for="notionToken">Integration token
+                <input id="notionToken" type="password" autocomplete="off" spellcheck="false" maxlength="200" placeholder="ntn_...">
+              </label>
+              <label class="field-label" for="notionParentPage">Parent page link or ID
+                <input id="notionParentPage" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://notion.so/Workspace-1234...">
+              </label>
+            </div>
+            <div class="obsidian-export-controls">
+              <label class="toggle-setting"><input id="notionIncludeArchived" type="checkbox"><span><strong>Include archived projects</strong>Off by default.</span></label>
+              <button id="syncNotion" class="button primary" type="button">Sync to Notion</button>
+            </div>
+            <p id="notionSyncMessage" class="form-status" role="status"></p>
+          </section>
           <section class="settings-section data-settings">
             <span class="eyebrow">Backup</span>
             <h2>Your data</h2>
