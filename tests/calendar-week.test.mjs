@@ -251,10 +251,10 @@ test('calendar week grid', async (t) => {
     const p = loadPage(baseState());
     const inside = p.run(`formatWeekHeading('2026-09-09')`);
     ck('a week inside one month names the month once',
-      inside === 'September 7 - 13, 2026', inside);
+      inside === 'September 7\u2009\u2013\u200913, 2026', inside);
     const across = p.run(`formatWeekHeading('2026-10-01')`);
     ck('a week across two months names both',
-      across === 'September 28 - October 4, 2026', across);
+      across === 'September 28\u2009\u2013\u2009October 4, 2026', across);
 
     p.run(`calendarScope = 'week'; selectedCalendarDate = todayKey();`);
     const defaults = JSON.parse(p.run(`JSON.stringify(newCalendarEntryDefaults())`));

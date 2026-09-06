@@ -622,6 +622,16 @@
               <label><input type="radio" name="colorMode" value="light"><span>Light</span></label>
               <label><input type="radio" name="colorMode" value="dark"><span>Dark</span></label>
             </div>
+            <h3 class="appearance-subheading">Date and time</h3>
+            <label class="field-label">Format
+              <select id="dateTimeLocale">
+                <option value="system">Match the browser</option>
+                <option value="de-DE">Deutsch - 24-hour, German names</option>
+                <option value="en-GB">English - 24-hour</option>
+                <option value="en-US">English - 12-hour</option>
+              </select>
+            </label>
+            <p>Applies to every clock, date and weekday in Focus Desk, including the Moment screen.</p>
             <h3 class="appearance-subheading">Accent palette</h3>
             <div class="palette-options">
               <label><input type="radio" name="palette" value="signal"><span class="palette-swatch signal"><i></i><i></i><i></i></span><strong>Signal red</strong></label>
@@ -739,9 +749,6 @@
                   </label>
                   <label class="field-label">Clock size
                     <select id="momentClockSize"><option value="large">Large</option><option value="compact">Compact</option></select>
-                  </label>
-                  <label class="field-label">Clock format
-                    <select id="momentClockFormat"><option value="24">24-hour</option><option value="12">12-hour</option></select>
                   </label>
                 </div>
                 <label class="overlay-field" for="momentOverlay"><span>Photo overlay</span><output id="momentOverlayValue">42%</output></label>

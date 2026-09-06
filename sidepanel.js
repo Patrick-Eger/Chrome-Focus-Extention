@@ -250,7 +250,8 @@ function faviconUrl(value) {
 }
 
 function formatTime(value) {
-  return new Date(Number(value) || Date.now()).toLocaleString([], {
+  const choice = state && state.settings && state.settings.dateTimeLocale;
+  return new Date(Number(value) || Date.now()).toLocaleString(choice && choice !== 'system' ? [choice] : [], {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',

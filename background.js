@@ -1,4 +1,4 @@
-const STORAGE_VERSION = 17;
+const STORAGE_VERSION = 18;
 const BLOCK_RULE_IDS = [1, 2];
 const FOCUS_ALARM = 'focus-session-end';
 const CALENDAR_SYNC_ALARM = 'calendar-background-sync';
@@ -83,7 +83,6 @@ const DEFAULTS = {
     colorMode: 'system',
     newTabMode: 'dashboard',
     momentImageSource: 'online',
-    momentClockFormat: '24',
     momentClockSize: 'large',
     momentOverlay: 42,
     momentShowQuote: true,
@@ -2585,8 +2584,35 @@ function normalizeSettings(settings) {
     celebrateTasksSound: settings.celebrateTasksSound !== false,
     momentGreetingName: cleanText(settings.momentGreetingName, 60),
     dashboardOverlay: clampNumber(settings.dashboardOverlay, 0, 90, 55),
-    dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30)
+    dashboardPanelTransparency: clampNumber(settings.dashboardPanelTransparency, 0, 85, 30),
+    dateTimeLocale: normalizeDateTimeLocale(settings),
+    // Folded into dateTimeLocale above; kept out of storage so the two cannot
+    // disagree about what the clock should look like.
+    momentClockFormat: undefined
   };
+}
+
+const DATE_TIME_LOCALES = ['system', 'de-DE', 'en-GB', 'en-US'];
+
+// This used to be a 12/24 switch that only the Moment clock read, while every
+// other date and time in the app followed the browser. One setting now decides
+// both the language and the clock everywhere, and an explicit old choice is
+// carried into it: 12-hour becomes US English, and 24-hour stays with the browser
+// unless the browser is a 12-hour one, where British English is the nearest thing
+// to "the clock I picked, the language I had".
+function normalizeDateTimeLocale(settings) {
+  if (DATE_TIME_LOCALES.includes(settings.dateTimeLocale)) return settings.dateTimeLocale;
+  if (settings.momentClockFormat === '12') return 'en-US';
+  if (settings.momentClockFormat === '24') return systemPrefersHour12() ? 'en-GB' : 'system';
+  return 'system';
+}
+
+function systemPrefersHour12() {
+  try {
+    return Boolean(new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12);
+  } catch (_) {
+    return false;
+  }
 }
 
 const FLASHCARD_GRADES = ['again', 'hard', 'good', 'easy'];

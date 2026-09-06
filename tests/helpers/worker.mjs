@@ -83,5 +83,8 @@ export function makeWorker({ store = {}, fetchImpl } = {}) {
     // The listener chains off ensureInitialized, so give the promise a turn.
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
-  return { api, store, changes, alarms, chrome, tabsCreated, fireInstalled };
+  // Read from the worker rather than repeated in every suite: a version bump is
+  // then a one-line change in background.js, not a hunt through the tests.
+  const storageVersion = vm.runInContext('STORAGE_VERSION', ctx);
+  return { api, store, changes, alarms, chrome, tabsCreated, fireInstalled, storageVersion };
 }

@@ -3,6 +3,8 @@ import { makeWorker } from './helpers/worker.mjs';
 import { loadPage } from './helpers/page.mjs';
 import { checks } from './helpers/check.mjs';
 
+const CURRENT_VERSION = makeWorker({}).storageVersion;
+
 test('who sees the checklist', async (t) => {
   const ck = checks(t);
   const { api } = makeWorker({ store: {} });
@@ -26,7 +28,7 @@ test('who sees the checklist', async (t) => {
   ck('a stored dismissal is respected', !seen({ onboarding: { dismissed: true }, projects: [] }));
   ck('and so is a stored decision to keep it', seen({ onboarding: { dismissed: false }, projects: [{ id: 'p' }] }));
 
-  const w = makeWorker({ store: { storageVersion: 17, migratedLegacyData: true } });
+  const w = makeWorker({ store: { storageVersion: CURRENT_VERSION, migratedLegacyData: true } });
   await w.api.ensureInitialized();
   ck('a fresh install stores it undismissed', w.store.onboarding.dismissed === false,
     JSON.stringify(w.store.onboarding));
@@ -42,7 +44,7 @@ test('who sees the checklist', async (t) => {
       JSON.stringify(fresh.tabsCreated[0]));
   }
   {
-    const updated = makeWorker({ store: { storageVersion: 17, migratedLegacyData: true, projects: [{ id: 'p' }] } });
+    const updated = makeWorker({ store: { storageVersion: CURRENT_VERSION, migratedLegacyData: true, projects: [{ id: 'p' }] } });
     await updated.fireInstalled({ reason: 'update' });
     ck('updating opens nothing', updated.tabsCreated.length === 0, JSON.stringify(updated.tabsCreated));
   }

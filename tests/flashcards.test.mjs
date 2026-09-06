@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import { makeWorker } from './helpers/worker.mjs';
 import { checks } from './helpers/check.mjs';
 
+const CURRENT_VERSION = makeWorker({}).storageVersion;
+
 const NOW = new Date('2026-09-10T12:00:00');
 const plus = (days) => {
   const d = new Date(NOW); d.setDate(d.getDate() + days);
@@ -72,7 +74,7 @@ test('flashcard scheduling', async (t) => {
 test('flashcard storage', async (t) => {
   const ck = checks(t);
   const base = () => ({
-    storageVersion: 17, migratedLegacyData: true,
+    storageVersion: CURRENT_VERSION, migratedLegacyData: true,
     flashcards: [{ id: 'c1', noteId: 'n1', question: 'Q1', answer: 'A1', createdAt: 1000 }],
     notes: []
   });
@@ -126,7 +128,7 @@ test('flashcard storage', async (t) => {
     const migrated = w.store.flashcards[0];
     ck('a legacy card gains an ease', migrated.easeFactor === 2.5, String(migrated.easeFactor));
     ck('and a due date', !!migrated.dueDate, migrated.dueDate);
-    ck('storage version moved to 17', w.store.storageVersion === 17, String(w.store.storageVersion));
+    ck('storage version moved to the current one', w.store.storageVersion === CURRENT_VERSION, String(w.store.storageVersion));
   }
 
   await ck.settled();

@@ -1364,7 +1364,7 @@ function renderWeekTimeline(container, anchorKey, { interactive = false } = {}) 
         .filter((block) => !['skipped', 'cancelled'].includes(block.status))
         .reduce((sum, block) => sum + Number(block.duration || 0), 0);
       return `<div class="week-head-cell${day.dateKey === today ? ' today' : ''}">
-        <span>${escapeHtml(date.toLocaleDateString([], { weekday: 'short' }))}</span>
+        <span>${escapeHtml(date.toLocaleDateString(localeTags(), { weekday: 'short' }))}</span>
         <strong>${date.getDate()}</strong>
         <small>${planned ? `${planned} min` : ''}</small>
       </div>`;
@@ -1486,24 +1486,33 @@ function calendarSyncLabel(stateValue) {
 function formatDayHeading(dateKey) {
   const date = new Date(`${dateKey}T12:00:00`);
   const prefix = dateKey === todayKey() ? 'Today · ' : '';
-  return `${prefix}${date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`;
+  return `${prefix}${date.toLocaleDateString(localeTags(), { weekday: 'long', month: 'long', day: 'numeric' })}`;
 }
 
 function formatWeekHeading(dateKey) {
   const days = weekDays(dateKey);
-  const first = new Date(`${days[0]}T12:00:00`);
-  const last = new Date(`${days[6]}T12:00:00`);
   const prefix = days.includes(todayKey()) ? 'This week · ' : '';
-  const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
-  const from = first.toLocaleDateString([], { month: 'long', day: 'numeric' });
-  const to = last.toLocaleDateString([], sameMonth ? { day: 'numeric' } : { month: 'long', day: 'numeric' });
-  return `${prefix}${from} - ${to}, ${last.getFullYear()}`;
+  const range = new Intl.DateTimeFormat(localeTags(), { day: 'numeric', month: 'long', year: 'numeric' })
+    .formatRange(new Date(`${days[0]}T12:00:00`), new Date(`${days[6]}T12:00:00`));
+  return `${prefix}${range}`;
+}
+
+// Every date and time the user reads goes through one locale choice, so the
+// calendar, the Moment clock and the planner cannot disagree about whether it is
+// 14:00 or 2:00 PM. An empty list means "whatever the browser does".
+const DATE_TIME_LOCALES = ['de-DE', 'en-GB', 'en-US'];
+
+function localeTags() {
+  const choice = state && state.settings && state.settings.dateTimeLocale;
+  // An unknown tag makes toLocaleDateString throw, which would take the whole
+  // render down over a display preference. Anything unrecognised is the browser.
+  return DATE_TIME_LOCALES.includes(choice) ? [choice] : [];
 }
 
 function formatHourMinute(minutes) {
   const date = new Date();
   date.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString(localeTags(), { hour: 'numeric', minute: '2-digit' });
 }
 
 function stepPlannerDate(amount) {
@@ -1609,7 +1618,7 @@ function describeRecurrence(series) {
   if (freq === 'weekdays') return 'Every weekday';
   if (freq === 'weekly') {
     const names = weekdays
-      .map((day) => new Date(Date.UTC(2024, 0, 7 + day)).toLocaleDateString([], { weekday: 'short', timeZone: 'UTC' }))
+      .map((day) => new Date(Date.UTC(2024, 0, 7 + day)).toLocaleDateString(localeTags(), { weekday: 'short', timeZone: 'UTC' }))
       .join(', ');
     return `${interval > 1 ? `Every ${interval} weeks` : 'Every week'} on ${names}`;
   }
@@ -2526,9 +2535,9 @@ function formatInboxTime(value) {
   const date = new Date(Number(value) || Date.now());
   const today = new Date();
   if (date.toDateString() === today.toDateString()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
   }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(localeTags(), { month: 'short', day: 'numeric' });
 }
 
 function bindProjects() {
@@ -3911,7 +3920,7 @@ function setNoteSaveStatus(message, dirty = false) {
 }
 
 function formatSaveTime(value) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(value).toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function renderMarkdownHtml(source) {
@@ -4150,7 +4159,7 @@ function bindCalendar() {
   $('#calendarNewReminder').addEventListener('click', () => openReminderModal(newCalendarEntryDefaults()));
   bindTimelineSurface($('#calendarList'), () => selectedCalendarDate);
   $('#calendarList').addEventListener('click', (event) => handleTimelineClick(event, selectedCalendarDate));
-  $('[data-calendar-scope]').forEach((button) => {
+  $$('[data-calendar-scope]').forEach((button) => {
     button.addEventListener('click', () => {
       calendarScope = button.dataset.calendarScope;
       renderCalendar();
@@ -4228,7 +4237,7 @@ function renderCalendar() {
     }))
   ].sort((a, b) => a.at - b.at);
   selectedCalendarDate ||= todayKey();
-  $('[data-calendar-scope]').forEach((button) => {
+  $$('[data-calendar-scope]').forEach((button) => {
     const on = button.dataset.calendarScope === calendarScope;
     button.classList.toggle('active', on);
     button.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -4910,7 +4919,7 @@ function dayToObsidianMarkdown(dateKey) {
     frontmatter,
     // Not formatDayHeading: it says "Today", which is baked into the file and wrong
     // the next morning.
-    `# ${obsidianMarkdownHeading(new Date(`${dateKey}T12:00:00`).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))}`,
+    `# ${obsidianMarkdownHeading(new Date(`${dateKey}T12:00:00`).toLocaleDateString(localeTags(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))}`,
     `## Plan\n\n${planLines}`,
     reminders.length
       ? `## Reminders\n\n${reminders.map((reminder) =>
@@ -5374,7 +5383,7 @@ function bindSettings() {
       momentShowMainFocus: $('#momentShowMainFocus').checked,
       momentShowLinks: $('#momentShowLinks').checked,
       momentShowTodo: $('#momentShowTodo').checked,
-      momentClockFormat: $('#momentClockFormat').value === '12' ? '12' : '24',
+      dateTimeLocale: $('#dateTimeLocale').value,
       momentClockSize: $('#momentClockSize').value === 'compact' ? 'compact' : 'large',
       momentOverlay: clamp($('#momentOverlay').value, 0, 75, 42),
       momentShowQuote: $('#momentShowQuote').checked,
@@ -5489,7 +5498,7 @@ function applySettingsFormValues() {
   $('#momentShowLinks').checked = state.settings.momentShowLinks !== false;
   $('#momentShowTodo').checked = state.settings.momentShowTodo !== false;
   $('#momentClockSize').value = state.settings.momentClockSize;
-  $('#momentClockFormat').value = state.settings.momentClockFormat;
+  $('#dateTimeLocale').value = state.settings.dateTimeLocale;
   $('#momentOverlay').value = state.settings.momentOverlay;
   $('#momentOverlayValue').textContent = `${state.settings.momentOverlay}%`;
   $('#momentShowQuote').checked = state.settings.momentShowQuote;
@@ -6425,13 +6434,9 @@ function getWorkspace(id) {
 
 function updateClock() {
   const now = new Date();
-  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const momentTime = now.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: state ? state.settings.momentClockFormat === '12' : false
-  });
-  const date = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  const time = now.toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
+  const momentTime = now.toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
+  const date = now.toLocaleDateString(localeTags(), { weekday: 'long', month: 'long', day: 'numeric' });
   $('#headerClock').textContent = time;
   $('#todayLabel').textContent = date;
   const countdown = momentCountdown();
@@ -6524,28 +6529,28 @@ function nextRoundedTime() {
 }
 
 function formatShortDate(value) {
-  return new Date(`${value}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return new Date(`${value}T12:00:00`).toLocaleDateString(localeTags(), { month: 'short', day: 'numeric' });
 }
 
 function formatEventDate(value) {
   if (!value) return '';
-  return new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString(localeTags(), { month: 'short', day: 'numeric' });
 }
 
 function formatEventDateLong(value) {
   if (!value) return '';
-  return new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  return new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString(localeTags(), { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function formatEventTimeOnly(value) {
   if (!value || value.length === 10) return 'Day';
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(value).toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatEventTime(start, end) {
   if (!start || start.length === 10) return 'All day';
-  const startText = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const endText = end ? new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const startText = new Date(start).toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' });
+  const endText = end ? new Date(end).toLocaleTimeString(localeTags(), { hour: '2-digit', minute: '2-digit' }) : '';
   return endText ? `${startText}–${endText}` : startText;
 }
 
@@ -7477,7 +7482,7 @@ async function importEverything(file) {
     return;
   }
 
-  const when = payload.exportedAt ? new Date(payload.exportedAt).toLocaleString() : 'an unknown date';
+  const when = payload.exportedAt ? new Date(payload.exportedAt).toLocaleString(localeTags()) : 'an unknown date';
   const counts = payload.data || {};
   const summary = [
     `${(counts.projects || []).length} projects`,

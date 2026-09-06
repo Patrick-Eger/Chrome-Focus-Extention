@@ -64,7 +64,7 @@ test('export and import', async (t) => {
   const oldExport = { format: 'focus-desk-export', formatVersion: 1, data: { storageVersion: 12, projects: [], tasks: [{ id: 'x', title: 'Alt' }], notes: [] } };
   const t2 = makeWorker({ store: { storageVersion: 16, migratedLegacyData: true } });
   await t2.api.importData(oldExport);
-  ck('an older export gains current defaults', t2.store.settings.focusBlocksSites === true && t2.store.storageVersion === 17, `sv=${t2.store.storageVersion}`);
+  ck('an older export gains current defaults', t2.store.settings.focusBlocksSites === true && t2.store.storageVersion === t2.storageVersion, `sv=${t2.store.storageVersion}`);
   ck('and its task survives', t2.store.tasks[0].title === 'Alt', JSON.stringify(t2.store.tasks.map(t => t.title)));
 
   await ck.settled();

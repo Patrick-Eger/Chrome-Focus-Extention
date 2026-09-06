@@ -20,7 +20,9 @@ that block every website outside the active workspace allowlist.
 - System, light, and dark display modes with four shared UI color palettes
 - Centred Moment screen with a time-of-day greeting, a daily main-focus prompt,
   and corner panels for links, tasks, and the focus timer
-- Configurable Moment clock format and size, overlay, visible elements, and quote source
+- Configurable Moment clock size, overlay, visible elements, and quote source
+- One date and time format for the whole app: browser default, German, or English
+  with a 24-hour or a 12-hour clock
 - Random or personal quotes with either online photos or a personal background-image library
 - Workspace-specific website allowlists, including localhost, private IP
   addresses, and other single-name hosts for local development
@@ -384,6 +386,24 @@ keep a minimum opacity of their own so navigation stays readable at any slider
 position. With an empty library the setting reports that no images are saved and
 the dashboard stays plain.
 
+## Date and time format
+
+**Settings > Appearance > Date and time** decides how every clock, date, weekday
+and month name in Focus Desk is written: **Match the browser**, **Deutsch**
+(24-hour, German names), **English 24-hour**, or **English 12-hour**. It covers the
+calendar, the planner, the Moment clock, the side panel and the day headings at
+once - there is no second place where a clock is configured.
+
+This replaces a 12/24 switch that only the Moment screen read, which is why an
+en-US browser could show `07:00` on the Moment clock and `7:00 AM` in the calendar
+on the same screen. An existing 12-hour choice is carried over to English 12-hour;
+an existing 24-hour choice stays with the browser, or becomes English 24-hour when
+the browser itself is a 12-hour one.
+
+Ranges are formatted by the language rather than assembled from parts, so a week
+in September reads `September 7 - 13, 2026` in English and `7.-13. September 2026`
+in German instead of the English shape with German words in it.
+
 ## The calendar
 
 **Calendar** opens on the current week: seven columns, Monday first, with work
@@ -554,7 +574,7 @@ estimate for tasks without an estimate are configurable in Settings.
 node --test
 ```
 
-533 checks across 17 suites, no dependencies and no build step - `node --test`
+560 checks across 19 suites, no dependencies and no build step - `node --test`
 discovers `tests/*.test.mjs` on its own. Node 20 or newer.
 
 `background.js` and `newtab.js` are browser scripts, so the suites evaluate them in
@@ -567,7 +587,8 @@ What they cover: storage migration and normalisation, the calendar merge and its
 conflict rules, recurrence and materialisation, export and import, the Obsidian
 markdown, the Notion request payloads, host validation, the blocking rule, the day
 scorecard, task completion, whiteboard geometry and interaction, the
-structure of the Settings page, and the calendar week grid.
+structure of the Settings page, the calendar week grid, and the date and time
+format.
 
 What they do not: real Chrome, real rendering, and the real Google and Notion APIs.
 Anything visual, and the first call against a live API, still has to be tried by
