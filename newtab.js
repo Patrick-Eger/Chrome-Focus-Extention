@@ -35,10 +35,12 @@ let inboxStatusFilter = 'open';
 let inboxTypeFilter = 'all';
 let selectedPlannerDate = null;
 let selectedCalendarDate = null;
+let calendarScope = 'week';
 let editingWorkBlockId = null;
 let editingWorkBlockDate = null;
 let editingReminderId = null;
 let draggedWorkBlockId = null;
+let draggedWorkBlockDate = null;
 let draggedWidgetId = null;
 let draggedDashboardCard = null;
 let dashboardEditing = false;
@@ -973,6 +975,7 @@ function bindPlanning() {
   $('#plannerTaskBank').addEventListener('dragend', () => {
     draggedPlannerTaskId = null;
     draggedWorkBlockId = null;
+    draggedWorkBlockDate = null;
     $('#dayRail').classList.remove('drop-ready');
   });
   $('#plannerTaskBank').addEventListener('click', async (event) => {
@@ -981,80 +984,9 @@ function bindPlanning() {
     await scheduleTaskBlock(button.dataset.scheduleTask);
   });
 
-  $('#dayRail').addEventListener('dragover', (event) => {
-    if (!draggedPlannerTaskId && !draggedWorkBlockId) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    $('#dayRail').classList.add('drop-ready');
-  });
-  $('#dayRail').addEventListener('dragleave', (event) => {
-    if (!$('#dayRail').contains(event.relatedTarget)) $('#dayRail').classList.remove('drop-ready');
-  });
-  $('#dayRail').addEventListener('drop', async (event) => {
-    event.preventDefault();
-    $('#dayRail').classList.remove('drop-ready');
-    const taskId = draggedPlannerTaskId || event.dataTransfer.getData('text/plain');
-    const blockId = draggedWorkBlockId || event.dataTransfer.getData('application/x-focus-desk-block');
-    draggedPlannerTaskId = null;
-    draggedWorkBlockId = null;
-    if (blockId) {
-      await moveWorkBlockToTime(blockId, timelineDropTime(event));
-      return;
-    }
-    if (!taskId) return;
-    const task = state.tasks.find((entry) => entry.id === taskId);
-    const duration = taskEstimate(task);
-    await scheduleTaskBlock(taskId, workdayDropTime(event, duration));
-  });
+  bindTimelineSurface($('#dayRail'), () => selectedPlannerDate);
 
-  $('#dayRail').addEventListener('dragstart', (event) => {
-    const card = event.target.closest('[data-work-block]');
-    if (!card) return;
-    draggedWorkBlockId = card.dataset.workBlock;
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('application/x-focus-desk-block', draggedWorkBlockId);
-  });
-
-  $('#dayRail').addEventListener('click', async (event) => {
-    const remove = event.target.closest('[data-delete-block]');
-    const blockCard = event.target.closest('[data-work-block]');
-    const reminderCard = event.target.closest('[data-reminder]');
-    const eventCard = event.target.closest('[data-calendar-event]');
-    const timeSlot = event.target.closest('[data-timeline-minute]');
-    if (await handleReminderAction(event)) return;
-    if (await handleWorkBlockAction(event, selectedPlannerDate)) return;
-    if (!remove) {
-      if (blockCard) {
-        openWorkBlockModal({ dateKey: selectedPlannerDate, blockId: blockCard.dataset.workBlock });
-      } else if (reminderCard) {
-        openReminderModal({ reminderId: reminderCard.dataset.reminder });
-      } else if (eventCard) {
-        const calendarEvent = (state.calendarEvents || []).find((entry) => (
-          `${entry.calendarId}:${entry.id}` === eventCard.dataset.calendarEvent
-        ));
-        if (calendarEvent && calendarEvent.htmlLink) window.open(calendarEvent.htmlLink, '_blank', 'noopener');
-      } else if (timeSlot) {
-        openWorkBlockModal({
-          dateKey: selectedPlannerDate,
-          time: minutesToTime(Number(timeSlot.dataset.timelineMinute))
-        });
-      }
-      return;
-    }
-    try {
-      if (remove) {
-        const block = getWorkBlock(selectedPlannerDate, remove.dataset.deleteBlock);
-        if (block && block.status === 'active') await send('stopFocus');
-        const dailyPlans = { ...state.dailyPlans };
-        dailyPlans[selectedPlannerDate] = (dailyPlans[selectedPlannerDate] || []).filter((block) => block.id !== remove.dataset.deleteBlock);
-        await save({ dailyPlans });
-        return;
-      }
-      await loadState();
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
+  $('#dayRail').addEventListener('click', (event) => handleTimelineClick(event, selectedPlannerDate));
 
   $('#dayReviewList').addEventListener('click', async (event) => {
     const complete = event.target.closest('[data-review-complete]');
@@ -1326,20 +1258,25 @@ function renderDayRail() {
   renderRoutines();
 }
 
-function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
+// The day and the week draw the same column; only how many of them differ. Every
+// piece below takes a dateKey so nothing here reads the selected date, which is
+// what made the calendar and the planner two copies of one renderer.
+function timelineWindow() {
   const startMinute = timeToMinutes(state.settings.calendarDayStart || '07:00');
   const requestedEnd = timeToMinutes(state.settings.calendarDayEnd || '21:00');
   const endMinute = requestedEnd > startMinute ? requestedEnd : startMinute + 14 * 60;
   const pixelsPerMinute = 1.2;
-  const height = (endMinute - startMinute) * pixelsPerMinute;
+  return { startMinute, endMinute, pixelsPerMinute, height: (endMinute - startMinute) * pixelsPerMinute };
+}
+
+function timelineEntriesForDate(dateKey, { startMinute, endMinute }) {
   const blocks = (state.dailyPlans[dateKey] || []).filter((block) => block.status !== 'cancelled');
   const reminders = (state.reminders || []).filter((reminder) => reminder.date === dateKey);
   const blockIds = new Set(blocks.map((block) => block.id));
   const events = (state.calendarEvents || []).filter((event) => eventOccursOnDate(event, dateKey)
     && event.status !== 'cancelled'
     && !blockIds.has(event.focusDeskBlockId));
-  const allDay = events.filter((event) => event.allDay);
-  const timedEntries = [
+  const timed = [
     ...blocks.map((block) => ({
       kind: 'block',
       item: block,
@@ -1363,11 +1300,19 @@ function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
       };
     })
   ].filter((entry) => entry.end > startMinute && entry.start < endMinute);
-  const laidOut = layoutTimelineEntries(timedEntries);
-  const hourMarks = [];
+  return { allDay: events.filter((event) => event.allDay), timed: layoutTimelineEntries(timed) };
+}
+
+function renderTimelineHours({ startMinute, endMinute, pixelsPerMinute, height }) {
+  const marks = [];
   for (let minute = Math.ceil(startMinute / 60) * 60; minute <= endMinute; minute += 60) {
-    hourMarks.push(`<time style="top:${(minute - startMinute) * pixelsPerMinute}px">${escapeHtml(formatHourMinute(minute))}</time>`);
+    marks.push(`<time style="top:${(minute - startMinute) * pixelsPerMinute}px">${escapeHtml(formatHourMinute(minute))}</time>`);
   }
+  return `<div class="timeline-hours" style="height:${height}px">${marks.join('')}</div>`;
+}
+
+function renderTimelineCanvas(dateKey, timed, win, { interactive = false } = {}) {
+  const { startMinute, endMinute, pixelsPerMinute, height } = win;
   // One slot per hour: hovering highlights the whole hour it would fill, which is
   // the unit people actually plan in. The modal that opens still takes any time.
   const slots = [];
@@ -1382,21 +1327,63 @@ function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
   const now = new Date();
   const nowMinute = now.getHours() * 60 + now.getMinutes();
   const showNow = dateKey === todayKey() && nowMinute >= startMinute && nowMinute <= endMinute;
-
-  container.innerHTML = `
-    ${allDay.length ? `<div class="all-day-lane"><span>All day</span><div>${allDay.map((event) => `
-      <a href="${escapeHtml(event.htmlLink || '#')}" ${event.htmlLink ? 'target="_blank" rel="noreferrer"' : ''} style="border-color:${safeCalendarColor(event.calendarColor)}">${escapeHtml(event.title)}</a>
-    `).join('')}</div></div>` : ''}
-    <div class="timeline-scroll">
-      <div class="timeline-hours" style="height:${height}px">${hourMarks.join('')}</div>
-      <div class="timeline-canvas" style="height:${height}px;--hour-height:${60 * pixelsPerMinute}px">
-        ${slots.join('')}
-        ${laidOut.map((entry) => renderTimelineEntry(entry, startMinute, endMinute, pixelsPerMinute, interactive)).join('')}
-        ${showNow ? `<div class="timeline-now" style="top:${(nowMinute - startMinute) * pixelsPerMinute}px"><span></span></div>` : ''}
-      </div>
+  return `<div class="timeline-canvas" data-timeline-date="${escapeHtml(dateKey)}" style="height:${height}px;--hour-height:${60 * pixelsPerMinute}px">
+      ${slots.join('')}
+      ${timed.map((entry) => renderTimelineEntry(entry, startMinute, endMinute, pixelsPerMinute, interactive)).join('')}
+      ${showNow ? `<div class="timeline-now" style="top:${(nowMinute - startMinute) * pixelsPerMinute}px"><span></span></div>` : ''}
     </div>`;
 }
 
+function renderAllDayLane(days) {
+  if (!days.some((day) => day.allDay.length)) return '';
+  return `<div class="all-day-lane" style="--day-columns:${days.length}"><span>All day</span><div>${days.map((day) => `
+    <div class="all-day-cell">${day.allDay.map((event) => `
+      <a href="${escapeHtml(event.htmlLink || '#')}" ${event.htmlLink ? 'target="_blank" rel="noreferrer"' : ''} style="border-color:${safeCalendarColor(event.calendarColor)}">${escapeHtml(event.title)}</a>
+    `).join('')}</div>`).join('')}</div></div>`;
+}
+
+function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
+  const win = timelineWindow();
+  const { allDay, timed } = timelineEntriesForDate(dateKey, win);
+  container.innerHTML = `
+    ${renderAllDayLane([{ dateKey, allDay }])}
+    <div class="timeline-scroll">
+      ${renderTimelineHours(win)}
+      ${renderTimelineCanvas(dateKey, timed, win, { interactive })}
+    </div>`;
+}
+
+function renderWeekTimeline(container, anchorKey, { interactive = false } = {}) {
+  const win = timelineWindow();
+  const days = weekDays(anchorKey).map((dateKey) => ({ dateKey, ...timelineEntriesForDate(dateKey, win) }));
+  const today = todayKey();
+  container.innerHTML = `
+    <div class="week-head" style="--day-columns:${days.length}"><span aria-hidden="true"></span><div>${days.map((day) => {
+      const date = new Date(`${day.dateKey}T12:00:00`);
+      const planned = (state.dailyPlans[day.dateKey] || [])
+        .filter((block) => !['skipped', 'cancelled'].includes(block.status))
+        .reduce((sum, block) => sum + Number(block.duration || 0), 0);
+      return `<div class="week-head-cell${day.dateKey === today ? ' today' : ''}">
+        <span>${escapeHtml(date.toLocaleDateString([], { weekday: 'short' }))}</span>
+        <strong>${date.getDate()}</strong>
+        <small>${planned ? `${planned} min` : ''}</small>
+      </div>`;
+    }).join('')}</div></div>
+    ${renderAllDayLane(days)}
+    <div class="timeline-scroll">
+      ${renderTimelineHours(win)}
+      <div class="week-days" style="--day-columns:${days.length}">${days.map((day) => (
+        renderTimelineCanvas(day.dateKey, day.timed, win, { interactive })
+      )).join('')}</div>
+    </div>`;
+}
+
+// Monday-first, matching the recurrence code in the worker.
+function weekDays(dateKey) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const monday = addDays(date, -((date.getDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, offset) => dateKeyFromDate(addDays(monday, offset)));
+}
 function renderTimelineEntry(entry, startMinute, endMinute, pixelsPerMinute, interactive) {
   const top = (Math.max(entry.start, startMinute) - startMinute) * pixelsPerMinute;
   const entryHeight = (Math.min(entry.end, endMinute) - Math.max(entry.start, startMinute)) * pixelsPerMinute;
@@ -1500,6 +1487,17 @@ function formatDayHeading(dateKey) {
   const date = new Date(`${dateKey}T12:00:00`);
   const prefix = dateKey === todayKey() ? 'Today · ' : '';
   return `${prefix}${date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`;
+}
+
+function formatWeekHeading(dateKey) {
+  const days = weekDays(dateKey);
+  const first = new Date(`${days[0]}T12:00:00`);
+  const last = new Date(`${days[6]}T12:00:00`);
+  const prefix = days.includes(todayKey()) ? 'This week · ' : '';
+  const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
+  const from = first.toLocaleDateString([], { month: 'long', day: 'numeric' });
+  const to = last.toLocaleDateString([], sameMonth ? { day: 'numeric' } : { month: 'long', day: 'numeric' });
+  return `${prefix}${from} - ${to}, ${last.getFullYear()}`;
 }
 
 function formatHourMinute(minutes) {
@@ -1690,12 +1688,13 @@ function renderDayReview(blocks) {
   `).join('') : emptyState('The day is closed. Every work block has a decision.');
 }
 
-async function scheduleTaskBlock(taskId, preferredTime = null, source = 'task') {
+async function scheduleTaskBlock(taskId, preferredTime = null, dateKey = null, source = 'task') {
+  const day = dateKey || selectedPlannerDate;
   const task = state.tasks.find((entry) => entry.id === taskId && !entry.completed);
   if (!task) return;
   const duration = taskEstimate(task);
-  const blocks = [...(state.dailyPlans[selectedPlannerDate] || [])];
-  const time = preferredTime || findAvailableWorkTime(selectedPlannerDate, duration, blocks);
+  const blocks = [...(state.dailyPlans[day] || [])];
+  const time = preferredTime || findAvailableWorkTime(day, duration, blocks);
   if (!time) {
     showToast('No open workday slot fits this task.');
     return;
@@ -1718,11 +1717,11 @@ async function scheduleTaskBlock(taskId, preferredTime = null, source = 'task') 
     createdAt: now,
     updatedAt: now
   };
-  const dailyPlans = { ...state.dailyPlans, [selectedPlannerDate]: [...blocks, block] };
+  const dailyPlans = { ...state.dailyPlans, [day]: [...blocks, block] };
   const tasks = state.tasks.map((entry) => entry.id === task.id ? {
     ...entry,
     status: 'planned',
-    plannedDate: selectedPlannerDate,
+    plannedDate: day,
     updatedAt: now
   } : entry);
   await save({ dailyPlans, tasks });
@@ -1801,21 +1800,114 @@ function findAvailableWorkTime(dateKey, duration, blocks) {
   return null;
 }
 
-function workdayDropTime(event, duration) {
-  const minute = timeToMinutes(timelineDropTime(event));
-  const start = timeToMinutes(state.settings.calendarDayStart || '07:00');
-  const end = timeToMinutes(state.settings.calendarDayEnd || '21:00');
-  return minutesToTime(Math.min(end - duration, Math.max(start, minute)));
+function workdayDropTarget(event, duration) {
+  const target = timelineDropTarget(event);
+  if (!target) return null;
+  const { startMinute, endMinute } = timelineWindow();
+  const minute = timeToMinutes(target.time);
+  return { ...target, time: minutesToTime(Math.min(endMinute - duration, Math.max(startMinute, minute))) };
 }
 
-function timelineDropTime(event) {
-  const canvas = event.currentTarget.querySelector('.timeline-canvas');
-  if (!canvas) return nextRoundedTime();
+// Which column the pointer is over decides the day, so a drag across the week
+// grid lands where it was dropped. A single-column rail has no ambiguity, so a
+// drop next to the canvas - on the hour gutter - still resolves to that day.
+function timelineDropTarget(event) {
+  const canvases = event.currentTarget.querySelectorAll('.timeline-canvas');
+  const canvas = (event.target.closest && event.target.closest('.timeline-canvas'))
+    || (canvases.length === 1 ? canvases[0] : null);
+  if (!canvas) return null;
   const bounds = canvas.getBoundingClientRect();
-  const start = timeToMinutes(state.settings.calendarDayStart || '07:00');
-  const end = timeToMinutes(state.settings.calendarDayEnd || '21:00');
+  const { startMinute, endMinute } = timelineWindow();
   const ratio = Math.max(0, Math.min(1, (event.clientY - bounds.top) / Math.max(1, bounds.height)));
-  return minutesToTime(Math.round((start + ratio * (end - start)) / 15) * 15);
+  return {
+    dateKey: canvas.dataset.timelineDate,
+    time: minutesToTime(Math.round((startMinute + ratio * (endMinute - startMinute)) / 15) * 15)
+  };
+}
+
+// Drag and drop for any timeline surface. A work block carries the day it was
+// picked up from, so dropping it in another column of the week grid moves it
+// between dates instead of within one.
+function bindTimelineSurface(container, fallbackDate) {
+  container.addEventListener('dragstart', (event) => {
+    const card = event.target.closest('[data-work-block]');
+    if (!card) return;
+    draggedWorkBlockId = card.dataset.workBlock;
+    draggedWorkBlockDate = timelineDateAt(event.target, fallbackDate());
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-focus-desk-block', draggedWorkBlockId);
+  });
+  container.addEventListener('dragover', (event) => {
+    if (!draggedPlannerTaskId && !draggedWorkBlockId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    container.classList.add('drop-ready');
+  });
+  container.addEventListener('dragleave', (event) => {
+    if (!container.contains(event.relatedTarget)) container.classList.remove('drop-ready');
+  });
+  container.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    container.classList.remove('drop-ready');
+    const taskId = draggedPlannerTaskId || event.dataTransfer.getData('text/plain');
+    const blockId = draggedWorkBlockId || event.dataTransfer.getData('application/x-focus-desk-block');
+    const fromDate = draggedWorkBlockDate || fallbackDate();
+    draggedPlannerTaskId = null;
+    draggedWorkBlockId = null;
+    draggedWorkBlockDate = null;
+    if (blockId) {
+      const target = timelineDropTarget(event);
+      if (target) await moveWorkBlock(blockId, fromDate, target.dateKey, target.time);
+      return;
+    }
+    if (!taskId) return;
+    const task = state.tasks.find((entry) => entry.id === taskId);
+    const target = workdayDropTarget(event, taskEstimate(task));
+    if (target) await scheduleTaskBlock(taskId, target.time, target.dateKey);
+  });
+}
+
+// One handler for the planner rail and the calendar, day or week. The date comes
+// from the column that was clicked, so nothing here depends on which view it is.
+async function handleTimelineClick(event, fallbackDate) {
+  const dateKey = timelineDateAt(event.target, fallbackDate);
+  const remove = event.target.closest('[data-delete-block]');
+  const blockCard = event.target.closest('[data-work-block]');
+  const reminderCard = event.target.closest('[data-reminder]');
+  const eventCard = event.target.closest('[data-calendar-event]');
+  const timeSlot = event.target.closest('[data-timeline-minute]');
+  if (await handleReminderAction(event)) return;
+  if (await handleWorkBlockAction(event, dateKey)) return;
+  if (!remove) {
+    if (blockCard) {
+      openWorkBlockModal({ dateKey, blockId: blockCard.dataset.workBlock });
+    } else if (reminderCard) {
+      openReminderModal({ reminderId: reminderCard.dataset.reminder });
+    } else if (eventCard) {
+      const calendarEvent = (state.calendarEvents || []).find((entry) => (
+        `${entry.calendarId}:${entry.id}` === eventCard.dataset.calendarEvent
+      ));
+      if (calendarEvent && calendarEvent.htmlLink) window.open(calendarEvent.htmlLink, '_blank', 'noopener');
+    } else if (timeSlot) {
+      openWorkBlockModal({ dateKey, time: minutesToTime(Number(timeSlot.dataset.timelineMinute)) });
+    }
+    return;
+  }
+  try {
+    const block = getWorkBlock(dateKey, remove.dataset.deleteBlock);
+    if (block && block.status === 'active') await send('stopFocus');
+    const dailyPlans = { ...state.dailyPlans };
+    dailyPlans[dateKey] = (dailyPlans[dateKey] || []).filter((entry) => entry.id !== remove.dataset.deleteBlock);
+    await save({ dailyPlans });
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+// The date a click landed on, so one handler serves a single rail and a week grid.
+function timelineDateAt(target, fallback) {
+  const canvas = target && target.closest && target.closest('[data-timeline-date]');
+  return (canvas && canvas.dataset.timelineDate) || fallback;
 }
 
 function workBlockConflicts(block, blocks, dateKey = selectedPlannerDate) {
@@ -2171,35 +2263,41 @@ async function deleteWorkBlockFromModal() {
   }
 }
 
-async function moveWorkBlockToTime(blockId, time) {
-  const block = getWorkBlock(selectedPlannerDate, blockId);
-  if (!block || !validWorkTime(time)) return;
-  const dailyPlans = {
-    ...state.dailyPlans,
-    [selectedPlannerDate]: (state.dailyPlans[selectedPlannerDate] || []).map((entry) => (
-      entry.id === blockId
-        ? {
-            ...entry,
-            time,
-            calendar: {
-              ...entry.calendar,
-              syncState: entry.calendar && entry.calendar.eventId ? 'pending' : 'local'
-            },
-            updatedAt: Date.now()
-          }
-        : entry
-    ))
+// A move can cross days now that the week grid exists, so the block leaves one
+// date and joins another. The Google event keeps its id and is patched to the new
+// date rather than deleted and recreated, and any linked task follows along.
+async function moveWorkBlock(blockId, fromDate, toDate, time) {
+  const block = getWorkBlock(fromDate, blockId);
+  if (!block || !validWorkTime(time) || !toDate) return;
+  if (fromDate === toDate && block.time === time) return;
+  const now = Date.now();
+  const moved = {
+    ...block,
+    time,
+    calendar: {
+      ...block.calendar,
+      syncState: block.calendar && block.calendar.eventId ? 'pending' : 'local'
+    },
+    updatedAt: now
   };
-  await chrome.storage.local.set({ dailyPlans });
-  Object.assign(state, { dailyPlans });
-  renderDayRail();
+  const dailyPlans = { ...state.dailyPlans };
+  if (fromDate === toDate) {
+    dailyPlans[fromDate] = (dailyPlans[fromDate] || []).map((entry) => entry.id === blockId ? moved : entry);
+  } else {
+    dailyPlans[fromDate] = (dailyPlans[fromDate] || []).filter((entry) => entry.id !== blockId);
+    dailyPlans[toDate] = [...(dailyPlans[toDate] || []), moved];
+  }
+  const tasks = fromDate !== toDate && block.taskId
+    ? state.tasks.map((task) => task.id === block.taskId ? { ...task, plannedDate: toDate, updatedAt: now } : task)
+    : state.tasks;
+  try {
+    await save({ dailyPlans, tasks });
+  } catch (_) {
+    return;
+  }
   if (block.calendar && block.calendar.eventId) {
     try {
-      await send('updateCalendarEvent', {
-        dateKey: selectedPlannerDate,
-        id: blockId,
-        interactive: true
-      });
+      await send('updateCalendarEvent', { dateKey: toDate, id: blockId, interactive: true });
       await loadState();
     } catch (error) {
       await loadState();
@@ -2207,7 +2305,7 @@ async function moveWorkBlockToTime(blockId, time) {
       return;
     }
   }
-  showToast(`Moved to ${time}.`);
+  showToast(fromDate === toDate ? `Moved to ${time}.` : `Moved to ${formatDayHeading(toDate)}, ${time}.`);
 }
 
 function bindInbox() {
@@ -4048,36 +4146,15 @@ function bindCalendar() {
     selectedCalendarDate = todayKey();
     renderCalendar();
   });
-  $('#calendarNewWorkBlock').addEventListener('click', () => openWorkBlockModal({
-    dateKey: selectedCalendarDate,
-    time: selectedCalendarDate === todayKey() ? nextRoundedTime() : state.settings.workdayStart
-  }));
-  $('#calendarNewReminder').addEventListener('click', () => openReminderModal({
-    dateKey: selectedCalendarDate,
-    time: selectedCalendarDate === todayKey() ? nextRoundedTime() : state.settings.workdayStart
-  }));
-  $('#calendarList').addEventListener('click', async (event) => {
-    if (await handleReminderAction(event)) return;
-    if (await handleWorkBlockAction(event, selectedCalendarDate)) return;
-    const blockCard = event.target.closest('[data-work-block]');
-    const reminderCard = event.target.closest('[data-reminder]');
-    const eventCard = event.target.closest('[data-calendar-event]');
-    const timeSlot = event.target.closest('[data-timeline-minute]');
-    if (blockCard) {
-      openWorkBlockModal({ dateKey: selectedCalendarDate, blockId: blockCard.dataset.workBlock });
-    } else if (reminderCard) {
-      openReminderModal({ reminderId: reminderCard.dataset.reminder });
-    } else if (eventCard) {
-      const calendarEvent = (state.calendarEvents || []).find((entry) => (
-        `${entry.calendarId}:${entry.id}` === eventCard.dataset.calendarEvent
-      ));
-      if (calendarEvent && calendarEvent.htmlLink) window.open(calendarEvent.htmlLink, '_blank', 'noopener');
-    } else if (timeSlot) {
-      openWorkBlockModal({
-        dateKey: selectedCalendarDate,
-        time: minutesToTime(Number(timeSlot.dataset.timelineMinute))
-      });
-    }
+  $('#calendarNewWorkBlock').addEventListener('click', () => openWorkBlockModal(newCalendarEntryDefaults()));
+  $('#calendarNewReminder').addEventListener('click', () => openReminderModal(newCalendarEntryDefaults()));
+  bindTimelineSurface($('#calendarList'), () => selectedCalendarDate);
+  $('#calendarList').addEventListener('click', (event) => handleTimelineClick(event, selectedCalendarDate));
+  $('[data-calendar-scope]').forEach((button) => {
+    button.addEventListener('click', () => {
+      calendarScope = button.dataset.calendarScope;
+      renderCalendar();
+    });
   });
   $('#connectCalendar').addEventListener('click', () => connectGoogleCalendar($('#connectCalendar'), $('#calendarNotice')));
   $('#settingsConnectCalendar').addEventListener('click', () => connectGoogleCalendar($('#settingsConnectCalendar'), $('#settingsCalendarMessage')));
@@ -4151,8 +4228,19 @@ function renderCalendar() {
     }))
   ].sort((a, b) => a.at - b.at);
   selectedCalendarDate ||= todayKey();
-  $('#calendarDateHeading').textContent = formatDayHeading(selectedCalendarDate);
-  renderDayTimeline($('#calendarList'), selectedCalendarDate, { interactive: true });
+  $('[data-calendar-scope]').forEach((button) => {
+    const on = button.dataset.calendarScope === calendarScope;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  $('#calendarList').classList.toggle('week-scope', calendarScope === 'week');
+  if (calendarScope === 'week') {
+    $('#calendarDateHeading').textContent = formatWeekHeading(selectedCalendarDate);
+    renderWeekTimeline($('#calendarList'), selectedCalendarDate, { interactive: true });
+  } else {
+    $('#calendarDateHeading').textContent = formatDayHeading(selectedCalendarDate);
+    renderDayTimeline($('#calendarList'), selectedCalendarDate, { interactive: true });
+  }
   $('#calendarPreview').innerHTML = upcoming.length ? upcoming.slice(0, 3).map((item) => `
     <article class="compact-item"><time>${escapeHtml(item.time)}</time><span><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></span></article>`).join('') : emptyState(state.calendarConnected ? 'No upcoming events or reminders.' : 'No upcoming reminders. Calendar is not connected.');
 }
@@ -4200,8 +4288,21 @@ function renderCalendarSettings() {
     : writable.find((calendar) => calendar.primary)?.id || 'primary';
 }
 
+// A week on screen has no single selected day, so a new entry lands on today when
+// today is one of the seven, and on the anchor day otherwise.
+function newCalendarEntryDefaults() {
+  const dateKey = calendarScope === 'week' && weekDays(selectedCalendarDate).includes(todayKey())
+    ? todayKey()
+    : selectedCalendarDate;
+  return {
+    dateKey,
+    time: dateKey === todayKey() ? nextRoundedTime() : state.settings.workdayStart
+  };
+}
+
 function stepCalendarDate(amount) {
-  selectedCalendarDate = dateKeyFromDate(addDays(new Date(`${selectedCalendarDate}T12:00:00`), amount));
+  const step = calendarScope === 'week' ? 7 : 1;
+  selectedCalendarDate = dateKeyFromDate(addDays(new Date(`${selectedCalendarDate}T12:00:00`), amount * step));
   renderCalendar();
 }
 

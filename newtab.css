@@ -345,8 +345,33 @@ textarea { resize: vertical; line-height: 1.55; }
 .timeline-now span { position: absolute; top: -4px; left: -5px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
 .all-day-lane { min-height: 46px; display: grid; grid-template-columns: 72px minmax(0, 1fr); border-bottom: 1px solid var(--line-dark); }
 .all-day-lane > span { padding: 12px 9px; border-right: 1px solid var(--line-dark); color: var(--muted); font-size: 10px; font-weight: 700; text-align: right; }
-.all-day-lane > div { padding: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.all-day-lane > div { padding: 6px 0; display: grid; grid-template-columns: repeat(var(--day-columns, 1), minmax(0, 1fr)); }
+.all-day-cell { min-width: 0; padding: 0 6px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+.all-day-cell a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .all-day-lane a { padding: 5px 7px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 3px; color: var(--ink); font-size: 10px; font-weight: 700; text-decoration: none; }
+.scope-switch { height: 36px; display: flex; border: 1px solid var(--line-dark); border-radius: 4px; overflow: hidden; }
+.scope-switch button { min-width: 52px; padding: 0 11px; border: 0; border-right: 1px solid var(--line-dark); background: var(--paper); color: var(--muted); font-size: 11px; font-weight: 700; }
+.scope-switch button:last-child { border-right: 0; }
+.scope-switch button:hover { color: var(--accent); }
+.scope-switch button.active { background: var(--accent); color: var(--paper); }
+.week-head { display: grid; grid-template-columns: 72px minmax(0, 1fr); border-bottom: 1px solid var(--line-dark); }
+.week-head > span { border-right: 1px solid var(--line-dark); }
+.week-head > div { display: grid; grid-template-columns: repeat(var(--day-columns, 7), minmax(0, 1fr)); }
+.week-head-cell { padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 1px; border-left: 1px solid var(--line); }
+.week-head-cell:first-child { border-left: 0; }
+.week-head-cell > span { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.week-head-cell > strong { font-size: 17px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.week-head-cell > small { min-height: 12px; color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.week-head-cell.today > strong { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--paper); }
+.week-days { display: grid; grid-template-columns: repeat(var(--day-columns, 7), minmax(0, 1fr)); }
+.week-days .timeline-canvas { border-left: 1px solid var(--line); }
+.week-days .timeline-canvas:first-child { border-left: 0; }
+/* A week entry is a seventh as wide, so the meta line does not fit next to it. */
+.week-days .timeline-entry span { font-size: 8px; }
+.week-days .timeline-entry-copy small,
+.week-days .timeline-entry-actions { display: none; }
+.week-days .timeline-slot { padding: 0 4px; font-size: 9px; }
+
 .planner-task-bank { padding: 18px; border-left: 1px solid var(--line-dark); background: var(--surface); }
 .planner-bank-hint { margin: 8px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .planner-task { padding: 11px 0 11px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border-top: 1px solid var(--line); border-left: 3px solid var(--line); cursor: grab; }
@@ -1159,6 +1184,7 @@ textarea { resize: vertical; line-height: 1.55; }
   .timeline-scroll { grid-template-columns: 54px minmax(300px, 1fr); overflow-x: auto; }
   .timeline-hours time { right: 6px; font-size: 9px; }
   .all-day-lane { grid-template-columns: 54px minmax(300px, 1fr); overflow-x: auto; }
+  .week-head { grid-template-columns: 54px minmax(300px, 1fr); }
   .review-row { grid-template-columns: 54px minmax(0, 1fr); }
   .review-row .button-row { grid-column: 1 / -1; }
   .review-row .button-row .button { flex: 1; }
@@ -1739,4 +1765,12 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
   .settings-nav { position: static; flex-direction: row; overflow-x: auto; }
   .settings-nav-button { min-width: max-content; border-bottom: 0; border-left: 0; border-bottom: 3px solid transparent; }
   .settings-nav-button.active { border-left: 0; border-bottom-color: var(--accent); }
+
+  /* Seven columns do not fit a phone. The week scrolls sideways rather than
+     being silently replaced by a day the user did not ask for. */
+  .calendar-list.week-scope { overflow-x: auto; }
+  .calendar-list.week-scope .week-head,
+  .calendar-list.week-scope .all-day-lane,
+  .calendar-list.week-scope .timeline-scroll { min-width: 660px; }
+  .calendar-list.week-scope .week-head-cell > small { display: none; }
 }

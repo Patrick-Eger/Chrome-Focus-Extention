@@ -461,12 +461,16 @@
 
       <section id="calendarView" class="view" data-title="Calendar">
         <div class="section-heading">
-          <div><span class="eyebrow">Google Calendar</span><h2 id="calendarDateHeading">Today</h2></div>
+          <div><span class="eyebrow">Blocks, reminders and events</span><h2 id="calendarDateHeading">Today</h2></div>
           <div class="button-row">
+            <div class="scope-switch" role="group" aria-label="Calendar range">
+              <button id="calendarScopeWeek" class="active" data-calendar-scope="week" type="button" aria-pressed="true">Week</button>
+              <button id="calendarScopeDay" data-calendar-scope="day" type="button" aria-pressed="false">Day</button>
+            </div>
             <div class="date-stepper" aria-label="Calendar date">
-              <button id="calendarPreviousDay" type="button" aria-label="Previous day">‹</button>
+              <button id="calendarPreviousDay" type="button" aria-label="Previous">‹</button>
               <button id="calendarToday" type="button">Today</button>
-              <button id="calendarNextDay" type="button" aria-label="Next day">›</button>
+              <button id="calendarNextDay" type="button" aria-label="Next">›</button>
             </div>
             <button id="calendarNewWorkBlock" class="button secondary">New block</button>
             <button id="calendarNewReminder" class="button secondary">New reminder</button>

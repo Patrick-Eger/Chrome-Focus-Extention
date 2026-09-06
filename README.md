@@ -95,6 +95,8 @@ counted toward a day.
   from the vault
 - One-way Notion mirror: projects as pages and tasks in a Notion database
 - Flashcards with a Cards view, a study session, and SM-2 spaced repetition
+- A calendar with a week and a day view that shows work blocks, reminders and
+  Google events in one grid, with blocks draggable between days
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
   reminders in Google and the browser, incremental background sync, and visible
   conflict/error states, with one unreadable calendar no longer stopping the rest
@@ -382,6 +384,30 @@ keep a minimum opacity of their own so navigation stays readable at any slider
 position. With an empty library the setting reports that no images are saved and
 the dashboard stays plain.
 
+## The calendar
+
+**Calendar** opens on the current week: seven columns, Monday first, with work
+blocks, standalone reminders and Google Calendar events in the same grid. A block
+that is synced to Google appears once, as the block. **Day** switches to the single
+column the Today view also uses, and the stepper then moves by a day instead of a
+week.
+
+Both views are the same renderer with a different number of columns, and each
+column carries its own date. Clicking an empty hour opens a new work block on that
+day, and dragging a block into another column moves it there - the linked Google
+event is patched to the new date rather than deleted and recreated, and a linked
+task follows to the new day. A Google event is not editable here; clicking one
+opens it in Google Calendar, because Focus Desk owns the blocks and Google owns the
+appointments.
+
+The event cache reaches from 30 days back to 180 days ahead, so moving through
+weeks needs no further requests. Recurring Focus Desk blocks are a different
+matter: they are materialised three weeks ahead, so a repeating block stops
+appearing beyond that horizon until the worker fills the next stretch in.
+
+On a screen narrower than 760 px the week scrolls sideways rather than silently
+collapsing into a day.
+
 ## The Moment screen
 
 Moment is the full-screen new-tab mode. Its layout follows the arrangement made
@@ -528,7 +554,7 @@ estimate for tasks without an estimate are configurable in Settings.
 node --test
 ```
 
-475 checks across 16 suites, no dependencies and no build step - `node --test`
+533 checks across 17 suites, no dependencies and no build step - `node --test`
 discovers `tests/*.test.mjs` on its own. Node 20 or newer.
 
 `background.js` and `newtab.js` are browser scripts, so the suites evaluate them in
@@ -540,8 +566,8 @@ Animations, Web Audio and `fetch`.
 What they cover: storage migration and normalisation, the calendar merge and its
 conflict rules, recurrence and materialisation, export and import, the Obsidian
 markdown, the Notion request payloads, host validation, the blocking rule, the day
-scorecard, task completion, whiteboard geometry and interaction, and the
-structure of the Settings page.
+scorecard, task completion, whiteboard geometry and interaction, the
+structure of the Settings page, and the calendar week grid.
 
 What they do not: real Chrome, real rendering, and the real Google and Notion APIs.
 Anything visual, and the first call against a live API, still has to be tried by
