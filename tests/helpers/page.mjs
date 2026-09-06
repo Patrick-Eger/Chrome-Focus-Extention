@@ -35,6 +35,7 @@ export function loadPage(stateObj) {
     navigator: { platform: 'MacIntel' }, console, Date, JSON, Math, Object, Array, Set, Map,
     Promise, URL, crypto, Number, String, Boolean, Infinity, isNaN, parseInt, parseFloat,
     Error, RegExp, setTimeout, clearTimeout, setInterval, requestAnimationFrame: noop,
+    TextEncoder, TextDecoder, Uint8Array, ArrayBuffer,
     ResizeObserver: class { observe() {} disconnect() {} },
     getComputedStyle: () => ({ getPropertyValue: () => '#111' }),
     indexedDB: { open: () => ({}) },

@@ -18,6 +18,7 @@ let obsidianRecallMessage = '';
 let obsidianSyncInProgress = false;
 let obsidianSyncMessage = '';
 let obsidianSyncError = false;
+let obsidianConflictNotes = [];
 let selectedProjectId = null;
 let projectIndexMode = 'active';
 let projectViewMode = 'overview';
@@ -4216,6 +4217,14 @@ function bindObsidianRecall() {
     }
     await scanObsidianVault(true);
   });
+  $('#importObsidianNotes').addEventListener('click', () => {
+    importNotesFromObsidian().catch((error) => showToast(error.message));
+  });
+  $('#resolveObsidianConflicts').addEventListener('click', () => {
+    if (!obsidianConflictNotes.length) return;
+    if (!confirm(`Replace ${obsidianConflictNotes.length} note${obsidianConflictNotes.length === 1 ? '' : 's'} with the Obsidian version?\n\n${obsidianConflictNotes.map((entry) => entry.title).join('\n')}\n\nWhat you changed in Focus Desk since the last sync will be lost.`)) return;
+    importNotesFromObsidian({ force: true }).catch((error) => showToast(error.message));
+  });
   $('#syncAllObsidianProjects').addEventListener('click', async () => {
     const settings = {
       ...state.settings,
@@ -4428,6 +4437,145 @@ async function syncProjectsToObsidian(projectIds, {
 
 // Same conflict rule as the project export: a file the user edited in Obsidian is
 // left alone rather than overwritten. Days share one record instead of one each.
+// Only notes come back. Project.md and the day notes are generated summaries -
+// parsing a user's edits out of them would mean guessing which parts are theirs.
+function parseObsidianNoteFile(source) {
+  const text = String(source || '');
+  const match = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return null;
+  const fields = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const field = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
+    if (field && field[2]) fields[field[1].toLowerCase()] = readObsidianYamlValue(field[2]);
+  }
+  if (fields.focus_desk_type !== 'note' || !fields.focus_desk_id) return null;
+
+  let rest = text.slice(match[0].length).replace(/^\r?\n+/, '');
+  let title = '';
+  const heading = rest.match(/^#\s+(.*?)\s*(?:\r?\n|$)/);
+  if (heading) {
+    title = heading[1].trim();
+    rest = rest.slice(heading[0].length).replace(/^\r?\n+/, '');
+  }
+  return {
+    id: fields.focus_desk_id,
+    projectId: fields.project_id || null,
+    title,
+    body: rest.replace(/\s+$/, '')
+  };
+}
+
+function readObsidianYamlValue(raw) {
+  const value = String(raw).trim();
+  if (/^".*"$/.test(value)) {
+    try { return JSON.parse(value); } catch (_) { return value.slice(1, -1); }
+  }
+  return value;
+}
+
+async function importNotesFromObsidian({ force = false } = {}) {
+  if (obsidianSyncInProgress) return;
+  if (!obsidianVaultHandle) {
+    showToast('Connect an Obsidian vault in Settings first.');
+    showView('settings');
+    return;
+  }
+  obsidianSyncInProgress = true;
+  obsidianSyncError = false;
+  obsidianSyncMessage = 'Reading the vault...';
+  renderObsidianSettings();
+
+  try {
+    if (!await ensureObsidianReadPermission(true)) {
+      throw new Error('Chrome needs read access to this vault.');
+    }
+    await flushPendingNoteSave();
+
+    const records = { ...(state.obsidianSyncRecords || {}) };
+    const updates = new Map();
+    const conflicts = [];
+    let missing = 0;
+    let unchanged = 0;
+
+    for (const [projectId, record] of Object.entries(records)) {
+      if (projectId === '__days' || !record || !record.notePaths) continue;
+      if (record.vaultName && record.vaultName !== obsidianVaultHandle.name) continue;
+
+      for (const [noteId, path] of Object.entries(record.notePaths)) {
+        const note = state.notes.find((entry) => entry.id === noteId);
+        if (!note) continue;
+        const contents = await readObsidianFile(path);
+        if (contents == null) {
+          missing += 1;
+          continue;
+        }
+        const fileHash = await hashObsidianText(contents);
+        const exported = record.files && record.files[path];
+        if (exported && exported.hash === fileHash) {
+          unchanged += 1;
+          continue;
+        }
+        const parsed = parseObsidianNoteFile(contents);
+        // A file whose id no longer matches is not the note we exported.
+        if (!parsed || parsed.id !== noteId) {
+          missing += 1;
+          continue;
+        }
+        // Changed on both sides: never pick a winner silently.
+        const changedHere = exported && Number(note.updatedAt) > Number(exported.syncedAt || 0);
+        if (changedHere && !force) {
+          conflicts.push({ noteId, path, title: note.title });
+          continue;
+        }
+        if (parsed.title === note.title && parsed.body === (note.body || '')) {
+          unchanged += 1;
+          continue;
+        }
+        updates.set(noteId, { projectId, path, hash: fileHash, parsed });
+      }
+    }
+
+    if (updates.size) {
+      const now = Date.now();
+      const notes = state.notes.map((note) => {
+        const update = updates.get(note.id);
+        if (!update) return note;
+        return {
+          ...note,
+          title: update.parsed.title || note.title,
+          body: update.parsed.body,
+          updatedAt: now
+        };
+      });
+      for (const update of updates.values()) {
+        const record = records[update.projectId];
+        record.files = { ...(record.files || {}), [update.path]: { hash: update.hash, syncedAt: now } };
+      }
+      await save({ notes, obsidianSyncRecords: records });
+      // The editor may be showing one of the notes that just changed underneath it.
+      if (selectedNoteId && updates.has(selectedNoteId)) openSelectedNote();
+    }
+
+    obsidianConflictNotes = conflicts;
+    obsidianSyncError = conflicts.length > 0;
+    obsidianSyncMessage = [
+      updates.size ? `${updates.size} note${updates.size === 1 ? '' : 's'} updated from Obsidian.` : 'No note changes to bring in.',
+      unchanged ? `${unchanged} unchanged.` : '',
+      conflicts.length
+        ? `${conflicts.length} changed in both places and left alone: ${conflicts.map((entry) => entry.title).join(', ')}.`
+        : '',
+      missing ? `${missing} file${missing === 1 ? '' : 's'} could not be read; nothing was deleted.` : ''
+    ].filter(Boolean).join(' ');
+  } catch (error) {
+    obsidianSyncError = true;
+    obsidianSyncMessage = error.message;
+  } finally {
+    obsidianSyncInProgress = false;
+    renderObsidianSettings();
+    renderNotes();
+  }
+}
+
 async function exportDaysToObsidian(previousRecord = null, { force = false } = {}) {
   const exportRoot = normalizeObsidianExportFolder(state.settings.obsidianExportFolder);
   const reusableRecord = previousRecord
@@ -4980,6 +5128,15 @@ function renderObsidianSettings() {
   $('#refreshObsidianVault').disabled = !obsidianVaultHandle || obsidianRecallState === 'scanning';
   $('#syncAllObsidianProjects').disabled = !obsidianVaultHandle || obsidianSyncInProgress;
   $('#syncAllObsidianProjects').textContent = obsidianSyncInProgress ? 'Syncing...' : 'Sync all projects';
+  $('#importObsidianNotes').disabled = !obsidianVaultHandle || obsidianSyncInProgress;
+  $('#importObsidianNotes').textContent = obsidianSyncInProgress ? 'Working...' : 'Import note edits';
+  // Only offered once there is actually something stuck, and named so it is clear
+  // which side wins.
+  $('#resolveObsidianConflicts').classList.toggle('hidden', !obsidianConflictNotes.length);
+  $('#resolveObsidianConflicts').disabled = obsidianSyncInProgress;
+  $('#resolveObsidianConflicts').textContent = obsidianConflictNotes.length === 1
+    ? "Take Obsidian's version"
+    : `Take Obsidian's version (${obsidianConflictNotes.length})`;
   $('#obsidianSyncMessage').textContent = obsidianSyncMessage;
   $('#obsidianSyncMessage').classList.toggle('error', obsidianSyncError);
   $('#settingsObsidianMessage').textContent = obsidianRecallMessage;

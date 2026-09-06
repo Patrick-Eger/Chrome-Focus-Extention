@@ -90,8 +90,9 @@ counted toward a day.
 - Markdown notes linked to either a workspace or a specific project and organized
   in collapsible workspace/project folders
 - Local Obsidian vault recall with configurable inline or frontmatter tags
-- One-way Obsidian export for projects, tasks, saved links, project notes, and a
-  day note per planned day, with per-file conflict protection
+- Obsidian export for projects, tasks, saved links, project notes, and a day note
+  per planned day, with per-file conflict protection, plus note edits read back
+  from the vault
 - One-way Notion mirror: projects as pages and tasks in a Notion database
 - Flashcards with a Cards view, a study session, and SM-2 spaced repetition
 - Two-way Google Calendar sync for work blocks, writable-calendar selection,
@@ -233,7 +234,22 @@ frontmatter. Day notes cover the last 90 days and everything upcoming - without 
 bound, a long-running planner would rewrite hundreds of files on every sync. They
 are written by **Sync all projects**, not by a single project's sync.
 
-This is intentionally a one-way export from Focus Desk. Before every write, Focus Desk compares each existing file with
+**Import note edits** brings the other direction back: a note you edited in
+Obsidian is read in, title and body. It is deliberately limited to notes.
+`Project.md` and the day notes are generated summaries, and picking a user's edits
+out of a generated file means guessing which parts are theirs.
+
+Nothing is overwritten silently. A file is only read back if it changed since the
+last export, and if the note also changed in Focus Desk since then it is left alone
+and named as a conflict; **Take Obsidian's version** is the explicit way to resolve
+those, and it says what will be lost. A note file that was deleted or whose
+`focus_desk_id` no longer matches is skipped and reported - nothing in Focus Desk is
+ever deleted by an import.
+
+Creating a note by putting a new file in the vault is not supported; it would have
+to invent an id and then rename the file out from under you on the next export.
+
+The export itself is one-way. Before every write, Focus Desk compares each existing file with
 the last exported version. Files changed in Obsidian are left untouched and the
 project is marked for review; replacing them requires explicit confirmation.
 
@@ -532,5 +548,6 @@ hand.
   remain available offline.
 - Obsidian recall scans up to 5,000 Markdown files per vault and requires a
   Chromium browser with local folder access support.
-- Obsidian sync is one-way. It does not import project changes from Markdown and
-  does not remove old exported files automatically.
+- Obsidian sync carries notes both ways but everything else only outward. Project
+  metadata, tasks and day notes are not read back, new files in the vault do not
+  become notes, and old exported files are not removed automatically.
