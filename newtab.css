@@ -295,8 +295,32 @@ textarea { resize: vertical; line-height: 1.55; }
   background-image:
     repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--hour-height) / 2 - 1px), color-mix(in srgb, var(--line) 55%, transparent) calc(var(--hour-height) / 2), transparent calc(var(--hour-height) / 2 + 1px), transparent calc(var(--hour-height) - 1px), var(--line) var(--hour-height));
 }
-.timeline-slot { position: absolute; left: 0; z-index: 1; width: 100%; padding: 0; border: 0; background: transparent; }
-.timeline-slot:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.timeline-slot {
+  position: absolute;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  border: 0;
+  border-top: 1px dashed transparent;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.timeline-slot span { opacity: 0; transition: opacity 120ms ease; }
+.timeline-slot:hover,
+.timeline-slot:focus-visible {
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  outline: 0;
+}
+.timeline-slot:hover span,
+.timeline-slot:focus-visible span { opacity: 1; }
+.timeline-slot:hover span::before { content: '+ '; }
 .timeline-entry { position: absolute; z-index: 2; min-width: 0; padding: 5px 7px; overflow: hidden; border: 1px solid var(--line-dark); border-left-width: 4px; border-radius: 4px; color: var(--ink); cursor: pointer; }
 .timeline-entry strong, .timeline-entry span, .timeline-entry small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-entry strong { font-size: 12px; line-height: 1.25; }
@@ -1634,3 +1658,15 @@ body.dashboard-editing .dashboard-lane.drop-into { border-color: var(--accent); 
 .notion-setup { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .notion-steps { margin: 0; padding-left: 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .notion-steps code { padding: 1px 4px; border: 1px solid var(--line); border-radius: 3px; font-size: 11px; }
+
+/* End-of-day scorecard */
+.scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin-bottom: 18px; border: 1px solid var(--line-dark); background: var(--line-dark); }
+.scorecard-cell { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; background: var(--panel-bg); }
+.scorecard-cell span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.scorecard-cell strong { font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.scorecard-cell small { color: var(--muted); font-size: 11px; }
+.scorecard-cell .delta { margin-top: 4px; font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.scorecard-cell .delta.up { color: var(--accent); font-weight: 700; }
+.scorecard-cell .delta.down { color: var(--muted); }
+.scorecard-cell .delta.same { color: var(--muted); }
+.scorecard-empty { margin: 0 0 18px; color: var(--muted); font-size: 13px; }

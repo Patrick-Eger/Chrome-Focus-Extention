@@ -38,8 +38,9 @@ that block every website outside the active workspace allowlist.
   `Command+Shift+Y` (`Ctrl+Shift+Y` on Windows/Linux)
 - Save the current window as a workspace and reopen its tabs as a Chrome tab group
 - Visible saved-tab lists with individual open and remove actions
-- Google-style day timelines in Today and Calendar with quarter-hour creation,
+- Google-style day timelines in Today and Calendar with hour-slot creation,
   overlap layout, an all-day lane, current-time marker, and drag rescheduling
+- End-of-day scorecard comparing the day against the one before it
 - Standalone personal reminders with their own editor, exact-time browser
   notifications, timeline entries, and completion state
 - Daily Planning Engine with a draggable task bank, one-click task scheduling,
@@ -49,6 +50,15 @@ that block every website outside the active workspace allowlist.
 - Linked work blocks that retain their task, project, and workspace, then start
   the matching workspace and focus session together
 - End-of-day review with completion and one-click rollover to tomorrow
+
+Hovering the day timeline highlights the whole hour a new block would fill and
+labels it; clicking opens the editor at that hour with a 60-minute default, where
+any other time can still be set. **Review** adds a scorecard above the open blocks:
+tasks finished, blocks completed against blocks planned, focused minutes against
+planned minutes, and reminders closed - each with the change against the previous
+day. Tasks are attributed to a day by their completion timestamp, which only became
+reliable in 5.13; anything finished before that carries no timestamp and cannot be
+counted toward a day.
 - Personal projects inside each workspace with outcomes, status, priority, due dates,
   progress, and archive/restore
 - Project link libraries with site favicons for saving and reopening useful

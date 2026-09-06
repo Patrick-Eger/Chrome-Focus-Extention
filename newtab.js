@@ -1258,10 +1258,15 @@ function renderDayTimeline(container, dateKey, { interactive = false } = {}) {
   for (let minute = Math.ceil(startMinute / 60) * 60; minute <= endMinute; minute += 60) {
     hourMarks.push(`<time style="top:${(minute - startMinute) * pixelsPerMinute}px">${escapeHtml(formatHourMinute(minute))}</time>`);
   }
+  // One slot per hour: hovering highlights the whole hour it would fill, which is
+  // the unit people actually plan in. The modal that opens still takes any time.
   const slots = [];
   if (interactive) {
-    for (let minute = startMinute; minute < endMinute; minute += 15) {
-      slots.push(`<button class="timeline-slot" style="top:${(minute - startMinute) * pixelsPerMinute}px;height:${15 * pixelsPerMinute}px" data-timeline-minute="${minute}" type="button" aria-label="Add work block at ${escapeHtml(minutesToTime(minute))}"></button>`);
+    for (let hour = Math.floor(startMinute / 60) * 60; hour < endMinute; hour += 60) {
+      const slotStart = Math.max(hour, startMinute);
+      const slotEnd = Math.min(hour + 60, endMinute);
+      if (slotEnd <= slotStart) continue;
+      slots.push(`<button class="timeline-slot" style="top:${(slotStart - startMinute) * pixelsPerMinute}px;height:${(slotEnd - slotStart) * pixelsPerMinute}px" data-timeline-minute="${slotStart}" type="button" aria-label="Add work block at ${escapeHtml(minutesToTime(slotStart))}"><span>${escapeHtml(minutesToTime(slotStart))}</span></button>`);
     }
   }
   const now = new Date();
@@ -1420,11 +1425,81 @@ function renderPlannerTaskBank() {
   }).join('') : emptyState('Every ready task is scheduled.');
 }
 
+// What a day actually produced. Tasks are counted by completedAt, which only
+// became reliable recently - anything finished before that carries no timestamp
+// and cannot be attributed to a day.
+function dayScorecard(dateKey) {
+  const blocks = (state.dailyPlans[dateKey] || []).filter((block) => block.status !== 'cancelled');
+  const completedBlocks = blocks.filter((block) => block.status === 'completed');
+  const dayStart = new Date(`${dateKey}T00:00:00`).getTime();
+  const dayEnd = dayStart + 86400000;
+  return {
+    dateKey,
+    tasksDone: state.tasks.filter((task) => task.completed
+      && Number(task.completedAt) >= dayStart && Number(task.completedAt) < dayEnd).length,
+    blocksDone: completedBlocks.length,
+    blocksPlanned: blocks.length,
+    focusMinutes: completedBlocks.reduce((sum, block) => sum + (Number(block.duration) || 0), 0),
+    plannedMinutes: blocks.reduce((sum, block) => sum + (Number(block.duration) || 0), 0),
+    remindersDone: (state.reminders || []).filter((reminder) =>
+      reminder.date === dateKey && reminder.status === 'done').length
+  };
+}
+
+function previousDateKey(dateKey) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  date.setDate(date.getDate() - 1);
+  return dateKeyFromDate(date);
+}
+
+function scorecardDelta(value, previous) {
+  const diff = value - previous;
+  if (!diff) return '<span class="delta same">same as the day before</span>';
+  const sign = diff > 0 ? '+' : '−';
+  return `<span class="delta ${diff > 0 ? 'up' : 'down'}">${sign}${Math.abs(diff)} vs the day before</span>`;
+}
+
+function renderDayScorecard(dateKey) {
+  const today = dayScorecard(dateKey);
+  const yesterday = dayScorecard(previousDateKey(dateKey));
+  const nothing = !today.tasksDone && !today.blocksDone && !today.plannedMinutes && !today.remindersDone;
+  if (nothing) {
+    return `<p class="scorecard-empty">Nothing finished on ${escapeHtml(formatShortDate(dateKey))} yet.</p>`;
+  }
+  const cards = [
+    { label: 'Tasks finished', value: today.tasksDone, previous: yesterday.tasksDone, detail: '' },
+    {
+      label: 'Blocks completed',
+      value: today.blocksDone,
+      previous: yesterday.blocksDone,
+      detail: today.blocksPlanned ? `of ${today.blocksPlanned} planned` : ''
+    },
+    {
+      label: 'Focused minutes',
+      value: today.focusMinutes,
+      previous: yesterday.focusMinutes,
+      detail: today.plannedMinutes ? `of ${today.plannedMinutes} planned` : ''
+    }
+  ];
+  if (today.remindersDone || yesterday.remindersDone) {
+    cards.push({ label: 'Reminders done', value: today.remindersDone, previous: yesterday.remindersDone, detail: '' });
+  }
+  return `<div class="scorecard">${cards.map((card) => `
+    <div class="scorecard-cell">
+      <span>${escapeHtml(card.label)}</span>
+      <strong>${card.value}</strong>
+      ${card.detail ? `<small>${escapeHtml(card.detail)}</small>` : ''}
+      ${scorecardDelta(card.value, card.previous)}
+    </div>
+  `).join('')}</div>`;
+}
+
 function renderDayReview(blocks) {
   $('#dayReview').classList.toggle('hidden', !dayReviewOpen);
   $('#toggleDayReview').classList.toggle('active', dayReviewOpen);
   if (!dayReviewOpen) return;
   const unresolved = blocks.filter((block) => !['completed', 'skipped', 'cancelled'].includes(block.status));
+  $('#dayScorecard').innerHTML = renderDayScorecard(selectedPlannerDate);
   $('#dayReviewList').innerHTML = unresolved.length ? unresolved.map((block) => `
     <article class="review-row">
       <time>${escapeHtml(block.time)}</time>
